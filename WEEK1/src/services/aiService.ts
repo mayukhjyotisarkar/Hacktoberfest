@@ -45,9 +45,9 @@ export async function generateMission(
     };
   }
 
-  const confirmedFeaturesStr = request.osmFeatures && request.osmFeatures.length > 0
+  const mappedPlaceContext = request.osmFeatures && request.osmFeatures.length > 0
     ? request.osmFeatures.join(', ')
-    : 'public walkway, seating area, greenery or trees, signpost';
+    : 'No mapped place classification is available.';
 
   const prompt = `You are the Master Storyteller for "Raid Outside", a tabletop-RPG inspired co-op micro-adventure app.
 Generate a safe, observational real-world quest based on the following user inputs:
@@ -55,11 +55,12 @@ Generate a safe, observational real-world quest based on the following user inpu
 - Duration: ${request.duration} minutes
 - Walking Effort: ${request.effort}
 - User's nearby public place: ${request.landmark}
-- CONFIRMED PHYSICAL FEATURES AT THIS LOCATION FROM OPENSTREETMAP: [ ${confirmedFeaturesStr} ]
+- OpenStreetMap place lookup: ${mappedPlaceContext}
 
-CRITICAL INSTRUCTIONS ON PHYSICAL FEATURES:
-- ONLY reference physical features that ACTUALLY EXIST at this location from the confirmed OpenStreetMap list above (${confirmedFeaturesStr}).
-- Do NOT invent objects that do not exist (e.g. do NOT mention fountains, arches, pillars, or statues unless explicitly listed in confirmed OpenStreetMap features).
+IMPORTANT LIMIT ON MAP DATA:
+- The OSM result is only a broad place classification. It does NOT confirm that benches, trees, paths, fountains, signs, or other objects are physically present or accessible.
+- Do not claim that any particular object exists. Phrase observation prompts as "if you see one" or use general observations of colors, shapes, sounds, and surroundings.
+- Do not invent precise directions or destinations. Keep destination suggestions general and within the user-provided public place.
 
 IMPORTANT SAFETY RULES:
 - Do NOT direct users onto private property, dangerous roads, construction sites, or restricted areas.
@@ -70,9 +71,9 @@ Return ONLY a JSON object with EXACTLY these fields (no markdown formatting, no 
 {
   "title": "A short epic quest name (3-6 words)",
   "story_hook": "An intriguing 2-sentence narrative introduction connecting the vibe to the location",
-  "destination_suggestion": "A safe suggestion of where to walk near ${request.landmark} focusing on ${confirmedFeaturesStr}",
-  "clue": "A playful riddle about observing one of the confirmed physical features (${confirmedFeaturesStr})",
-  "objective": "A simple, fun observation task for the squad focusing strictly on confirmed features (${confirmedFeaturesStr})",
+  "destination_suggestion": "A general, safe suggestion for exploring the user-provided public place ${request.landmark}; do not name an unverified landmark or object",
+  "clue": "A playful, solvable clue based on observing general colors, shapes, sounds, or surroundings; do not require a specific object to exist",
+  "objective": "A simple, fun, low-risk observation task that does not require touching anything or finding a specific object",
   "story_ending": "A satisfying 2-sentence conclusion revealing what the squad achieved",
   "badge_name": "A cool collectible badge title (2-3 words)"
 }`;
@@ -98,7 +99,7 @@ Return ONLY a JSON object with EXACTLY these fields (no markdown formatting, no 
         messages: [
           {
             role: 'system',
-            content: 'You output pure structured JSON only. Strictly respect the confirmed physical location features.'
+            content: 'You output pure structured JSON only. Never present map classifications as verified on-site physical features.'
           },
           {
             role: 'user',
@@ -138,7 +139,7 @@ Return ONLY a JSON object with EXACTLY these fields (no markdown formatting, no 
           vibe: request.vibe,
           landmark: request.landmark,
           osmFeatures: request.osmFeatures,
-          isOSMConfirmed: request.isOSMConfirmed,
+          isOSMPlaceMatched: request.isOSMPlaceMatched,
           id: `ai-mission-${Date.now()}`,
           createdAt: new Date().toISOString()
         },

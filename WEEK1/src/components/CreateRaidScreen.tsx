@@ -83,7 +83,7 @@ export const CreateRaidScreen: React.FC<CreateRaidScreenProps> = ({
       effort,
       landmark: landmark.trim(),
       osmFeatures: osmResult?.features,
-      isOSMConfirmed: osmResult?.isOSMConfirmed
+      isOSMPlaceMatched: osmResult?.isOSMPlaceMatched
     });
   };
 
@@ -230,15 +230,15 @@ export const CreateRaidScreen: React.FC<CreateRaidScreenProps> = ({
               )}
             </div>
 
-            {/* Confirmed OSM Features Box */}
+            {/* OSM place match; broad classification is not on-site verification. */}
             {osmResult && (
               <div className="mt-2 p-2.5 rounded-lg bg-[#E8F5E9] border border-[#81C784] text-xs space-y-1 animate-in fade-in">
                 <div className="flex items-center justify-between font-bold text-[#1B5E20]">
                   <span className="flex items-center gap-1">
                     <CheckCircle2 className="w-3.5 h-3.5 text-[#2E7D32]" />
-                    <span>OpenStreetMap Confirmed Physical Features:</span>
+                    <span>OpenStreetMap place lookup:</span>
                   </span>
-                  {osmResult.isOSMConfirmed && (
+                  {osmResult.isOSMPlaceMatched && (
                     <span className="bg-[#2E7D32] text-white text-[9px] font-black px-1.5 py-0.2 rounded-full">
                       OSM MATCH
                     </span>
@@ -250,15 +250,19 @@ export const CreateRaidScreen: React.FC<CreateRaidScreenProps> = ({
                       key={idx}
                       className="bg-white border border-[#A5D6A7] text-[#1B5E20] font-semibold text-[11px] px-2 py-0.5 rounded-md"
                     >
-                      ✓ {feat}
+                      {feat}
                     </span>
                   ))}
+                  {osmResult.features.length === 0 && (
+                    <span className="text-[#594A42]">No mapped place classification available.</span>
+                  )}
                 </div>
+                <p className="text-[10px] text-[#594A42]">Map data does not verify which features are physically present or accessible.</p>
               </div>
             )}
 
             <p className="text-[11px] text-[#594A42] mt-1">
-              🔒 Safe & Private: Automatically cross-references OpenStreetMap tags so quests ONLY reference physical features that actually exist at your site!
+              OpenStreetMap can match the place name, but it cannot verify on-site features. Check your surroundings and stay in public areas.
             </p>
           </div>
 

@@ -8,7 +8,7 @@ export interface MissionRequest {
   effort: Effort;
   landmark: string;
   osmFeatures?: string[];
-  isOSMConfirmed?: boolean;
+  isOSMPlaceMatched?: boolean;
 }
 
 export interface MissionData {
@@ -24,7 +24,7 @@ export interface MissionData {
   vibe?: Vibe;
   landmark?: string;
   osmFeatures?: string[];
-  isOSMConfirmed?: boolean;
+  isOSMPlaceMatched?: boolean;
   createdAt?: string;
 }
 
