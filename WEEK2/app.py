@@ -16,6 +16,12 @@ import pandas as pd
 import streamlit as st
 
 from paperpilot.pdf_extractor import extract_text_from_pdf, PDFExtractionError
+from paperpilot.ocr import (
+    is_tesseract_available,
+    get_tesseract_cmd,
+    get_tesseract_version,
+    INSTALL_GUIDANCE_MESSAGE,
+)
 from paperpilot.question_parser import parse_questions, QuestionItem
 from paperpilot.similarity import cluster_questions, SimilarityAnalysisResult
 from paperpilot.analytics import (
@@ -379,12 +385,22 @@ if nav_choice == "1. 📤 Upload Papers":
                     year=paper_year,
                 )
 
-                if extracted_doc.is_scanned:
-                    st.warning(
-                        f"⚠️ **Scanned PDF Detected in `{filename}`!**\n\n"
-                        f"This file contains image-only pages without selectable text. "
-                        f"Scanned photocopies require OCR, which is not yet supported. Please upload text-based PDFs."
-                    )
+                # Check if document yielded zero usable text (e.g. blank scan or missing Tesseract)
+                if extracted_doc.total_chars == 0:
+                    if not extracted_doc.ocr_available:
+                        st.warning(
+                            f"⚠️ **Scanned PDF Detected in `{filename}`!**\n\n"
+                            f"This document contains image-only pages and requires Optical Character Recognition (OCR), "
+                            f"but Tesseract-OCR is not installed or detected on this machine.\n\n"
+                            f"Text-based PDFs work immediately. To enable scanned PDF support, install Tesseract-OCR."
+                        )
+                        with st.expander("📥 How to install Tesseract-OCR on Windows (3 quick steps)", expanded=False):
+                            st.markdown(INSTALL_GUIDANCE_MESSAGE)
+                    else:
+                        st.warning(
+                            f"⚠️ No usable question text could be extracted from `{filename}`. "
+                            f"The document may be blank, corrupted, or have low image resolution."
+                        )
                     continue
 
                 parse_res = parse_questions(extracted_doc)
@@ -398,18 +414,38 @@ if nav_choice == "1. 📤 Upload Papers":
                 )
 
                 if saved:
+                    # Provide informative success feedback with OCR badges if applicable
+                    doc_type = "Digital Text"
+                    if extracted_doc.ocr_page_count > 0 and (extracted_doc.total_pages - extracted_doc.ocr_page_count) > 0:
+                        doc_type = f"Mixed ({extracted_doc.total_pages - extracted_doc.ocr_page_count} Digital + {extracted_doc.ocr_page_count} Scanned OCR)"
+                    elif extracted_doc.ocr_page_count > 0:
+                        doc_type = f"Scanned ({extracted_doc.ocr_page_count} OCR Pages)"
+
                     st.success(
-                        f"✅ Successfully processed `{filename}`: "
+                        f"✅ Successfully processed `{filename}` [{doc_type}]: "
                         f"**{len(parse_res.questions)}** questions extracted "
                         f"(Year: {paper_year if paper_year else 'Unknown'})."
                     )
+
+                    if extracted_doc.ocr_page_count > 0 and extracted_doc.avg_ocr_confidence:
+                        st.caption(
+                            f"🔍 OCR Scan Clarity: **~{int(extracted_doc.avg_ocr_confidence)}%**. "
+                            f"*Note: OCR confidence reflects scan clarity, not question accuracy. You can review and edit text in the drawer below.*"
+                        )
+
                     total_extracted += len(parse_res.questions)
                     papers_processed += 1
                 else:
                     st.info(f"Skipped `{filename}` because it already exists and overwrite was unchecked.")
 
+                # If there were unreadable pages or warnings, report them
+                if extracted_doc.failed_page_count > 0 or extracted_doc.ocr_warnings:
+                    with st.expander(f"⚠️ Page Extraction Warnings for `{filename}` ({len(extracted_doc.ocr_warnings)})", expanded=False):
+                        for warn in extracted_doc.ocr_warnings:
+                            st.caption(f"• {warn}")
+
                 if parse_res.unparsed_segments:
-                    with st.expander(f"ℹ️ Unparsed Headers/Instructions in `{filename}` ({len(parse_res.unparsed_segments)})"):
+                    with st.expander(f"ℹ️ Unparsed Headers/Instructions in `{filename}` ({len(parse_res.unparsed_segments)})", expanded=False):
                         for seg in parse_res.unparsed_segments[:5]:
                             st.caption(f"• {seg}")
 
@@ -953,6 +989,20 @@ elif nav_choice == "5. ⚙️ Settings & Privacy":
         - **Git Safety:** Your database and uploaded PDFs are excluded from version control via `.gitignore`.
         """
     )
+
+    st.markdown("---")
+    st.subheader("🔍 Local OCR Engine Status")
+    tess_available = is_tesseract_available()
+    if tess_available:
+        tess_ver = get_tesseract_version() or "Detected"
+        tess_path = get_tesseract_cmd() or "System PATH"
+        st.success(f"✅ **Tesseract-OCR is installed and active** ({tess_ver})")
+        st.caption(f"Binary path: `{tess_path}`. Scanned and image-only PDF pages are automatically converted to text.")
+    else:
+        st.info("ℹ️ **Tesseract-OCR is not installed or not detected on PATH.**")
+        st.caption("Standard digital text PDFs work 100% offline. To support scanned exam paper photos and image PDFs, install Tesseract-OCR.")
+        with st.expander("📥 Windows Installation Instructions", expanded=False):
+            st.markdown(INSTALL_GUIDANCE_MESSAGE)
 
     st.markdown("---")
     st.subheader("⚠️ Reset Database")

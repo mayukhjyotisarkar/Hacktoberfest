@@ -27,3 +27,9 @@ requests>=2.31.0,<3.0.0
 
 # 6. Test Suite & Verification (Development & Quality Assurance)
 pytest>=8.0.0,<10.0.0
+
+# 7. Optical Character Recognition (OCR) for Scanned & Image-Only PDFs
+# pytesseract interfaces with the locally installed Tesseract-OCR binary
+# Note: Tesseract-OCR executable is a separate system requirement
+pytesseract>=0.3.10,<1.0.0
+pillow>=10.0.0,<13.0.0

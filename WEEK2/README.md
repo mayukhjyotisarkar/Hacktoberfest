@@ -17,7 +17,7 @@ PaperPilot is a privacy-first, offline-capable study tool built for college stud
 
 | Feature | Description | Architecture / Implementation |
 | :--- | :--- | :--- |
-| **📄 PDF Extraction** | Extracts text with accurate page tracking and automatic scanned-PDF detection. | PyMuPDF (`pymupdf`) |
+| **📄 PDF Extraction** | Hybrid extraction: fast digital text extraction with PyMuPDF, falling back to local Tesseract OCR on scanned/image pages. | PyMuPDF (`pymupdf`) + Local Tesseract OCR (`pytesseract`, `Pillow`) |
 | **🔍 Numbered Parser** | Detects question boundaries (`1.`, `2(a)`, `(i)`) while rejecting non-question headers (`Time: 3 Hours`, `Max Marks`). | Custom regex delimiter engine with lookahead & false-positive suppression |
 | **🔁 Leader Clustering** | Groups repeated and similar questions across years using cosine similarity without transitive chain-merging. | TF-IDF Vectorizer + Cosine Similarity (`scikit-learn`) + Leader Clustering |
 | **📈 Frequency Analytics** | Calculates recurrence counts, distinct paper distributions, and exam year breakdowns. | Tabular aggregation (`pandas`) |
@@ -30,12 +30,14 @@ PaperPilot is a privacy-first, offline-capable study tool built for college stud
 
 ## ⚠️ Important Limitations
 
-1. **Text-Based PDFs Only (No Scanned Image OCR in Current MVP):**  
-   PaperPilot expects standard digital text-based PDFs (where you can select and copy text). If an uploaded PDF is a scanned photocopy or smartphone camera picture, PaperPilot will detect it and display an informative warning. OCR support is planned for a future release.
+1. **Scanned PDFs & OCR Requirements:**  
+   Standard digital text PDFs (where text can be highlighted) extract immediately with zero external tools. Scanned photocopies and smartphone camera images require the open-source **Tesseract-OCR** engine installed locally on your Windows machine. If Tesseract is not installed, digital PDFs continue working normally, and PaperPilot will display clear installation guidance.
 2. **AI is 100% Optional:**  
    The entire core pipeline—question extraction, clustering, occurrence counts, revision checklists, and CSV exports—runs **completely offline with zero AI models installed**.
 3. **Local AI Hardware:**  
    If you choose to use the optional AI topic labels and revision notes, you need the local [Ollama](https://ollama.com) runtime and approximately 1.5 GB of free system RAM or GPU VRAM for the `qwen2.5-coder:1.5b-base` model.
+4. **Scanned Math & Diagram Limitations:**  
+   OCR on low-resolution scans, handwritten text, complex mathematical matrices, or circuit diagrams may require manual corrections using the built-in Question Review drawer in Step 1.
 
 ---
 
@@ -137,6 +139,33 @@ If you want AI-generated topic badges (e.g., `🏷️ [Banker's Algorithm]`) and
 
 ---
 
+## 🔍 Local OCR Setup (Tesseract for Scanned PDFs)
+
+PaperPilot uses **hybrid PDF extraction**:
+1. It reads each page with PyMuPDF. If selectable digital text is found, it extracts it instantly.
+2. If a page is a scanned photo, photocopy, or image-only page, PaperPilot automatically renders the page at 300 DPI and invokes the local **Tesseract-OCR** engine.
+3. In mixed PDFs (where some pages are typed and others are scanned), each page is handled appropriately without losing metadata or page numbers.
+
+### Windows Installation Steps:
+1. **Download Tesseract Installer:**  
+   Download the latest 64-bit Windows installer from the official UB Mannheim build:  
+   👉 [https://github.com/UB-Mannheim/tesseract/wiki](https://github.com/UB-Mannheim/tesseract/wiki)  
+   *(e.g. `tesseract-ocr-w64-setup-5.4.0.xxxx.exe`)*
+2. **Run Installer:**  
+   Install to the standard default path: `C:\Program Files\Tesseract-OCR`.  
+   PaperPilot auto-detects this path as well as `%LOCALAPPDATA%\Programs\Tesseract-OCR`.
+3. **Optional Custom Path:**  
+   If installed in a custom location, set the `TESSERACT_CMD` environment variable:
+   ```cmd
+   set TESSERACT_CMD=D:\Custom\Tesseract-OCR\tesseract.exe
+   ```
+4. **Language Packs:**  
+   English (`eng`) is included by default. Additional language packs (`.traineddata` files) can be selected during installation or copied to `C:\Program Files\Tesseract-OCR\tessdata\`.
+5. **Local Privacy:**  
+   All OCR rendering and processing happen **100% locally on your PC**. No images or text are ever transmitted to the cloud.
+
+---
+
 ## 🔒 Privacy & Local Data Handling Statement
 
 PaperPilot was designed from day one to guarantee complete student privacy:
@@ -144,6 +173,7 @@ PaperPilot was designed from day one to guarantee complete student privacy:
 - **Local Storage Only:** All extracted questions, papers, and checklists are stored in a local SQLite file (`paperpilot.db`).
 - **No Cloud Telemetry:** PaperPilot does not include Google Analytics, Mixpanel, or any tracking SDKs.
 - **No Cloud AI APIs:** Unlike web apps that send your notes or PDFs to remote OpenAI or Google servers, PaperPilot only communicates with your own local Ollama instance on `localhost:11434`.
+- **Local OCR:** PDF image rendering and OCR character recognition run strictly on local CPU without internet access.
 - **Git Safety:** `paperpilot.db`, temporary files, virtual environments, and user-uploaded PDFs are strictly excluded via `.gitignore`.
 - **Internet Usage Disclosure:** An internet connection is only needed during initial setup (`pip install` and `ollama pull`). Once installed, the application functions **100% offline**.
 
@@ -154,7 +184,7 @@ PaperPilot was designed from day one to guarantee complete student privacy:
 | Problem | Cause | Solution |
 | :--- | :--- | :--- |
 | `'python' is not recognized as an internal or external command` | Python was installed without checking "Add python.exe to PATH". | Reinstall Python from [python.org](https://www.python.org/downloads/) and check the box: **"Add python.exe to PATH"**. |
-| `⚠️ Scanned PDF Detected` | The PDF contains image scans rather than selectable text. | Use a PDF that has selectable text, or re-export the document from Word / Google Docs as a digital PDF. |
+| `⚠️ Scanned PDF Detected (Tesseract not installed)` | The PDF contains image scans, and Tesseract-OCR is missing. | Install Tesseract-OCR from [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki). Text-based PDFs continue to work without OCR. |
 | `Port 8501 is already in use` | Another Streamlit instance or local service is running. | Streamlit will automatically attempt port 8502 or higher. To stop old instances, close their terminal windows. |
 | `⚠️ Local Ollama service is not running` | Ollama is not started in the background. | Launch the Ollama application from your Start Menu or system tray. |
 | `⚠️ Configured model 'qwen2.5-coder:1.5b-base' is not installed` | The candidate model has not been downloaded yet. | Run `ollama run qwen2.5-coder:1.5b-base` in your terminal once. |
@@ -163,7 +193,7 @@ PaperPilot was designed from day one to guarantee complete student privacy:
 
 ## 🧪 Running the Test Suite
 
-PaperPilot maintains a rigorous automated test suite of **151 tests** covering PDF parsing, TF-IDF vectorization, leader clustering, ACID persistence, loopback security, and Streamlit UI flows:
+PaperPilot maintains a rigorous automated test suite of **165 tests** covering hybrid PDF extraction, local OCR, TF-IDF vectorization, leader clustering, ACID persistence, loopback security, and Streamlit UI flows:
 
 ```bash
 # Activate your virtual environment first
@@ -191,8 +221,9 @@ We are actively validating PaperPilot with real college students!
 - [x] Phase 4: Streamlit multi-tab dashboard and SQLite persistence engine.
 - [x] Phase 5 (Stages 1–4): Local Ollama benchmarking, loopback client, topic tags, and grounded revision notes.
 - [x] Phase 5 (Stage 5): Windows-friendly packaging, 1-click batch scripts, diagnostics, and student validation protocol.
+- [x] Phase 5 (Stage 6): Student-friendly 3-step UI/UX redesign and 1-click sample paper onboarding.
+- [x] Phase 5 (Stage 7): Hybrid PDF extraction with local Tesseract-OCR for scanned and mixed exam papers.
 - [ ] Future: Single-file desktop installer (`.exe`) bundling Python for zero-terminal setup.
-- [ ] Future: Lightweight local OCR engine for scanned photocopies and handwritten notes.
 - [ ] Future: Department-level course syllabus mapping and multi-subject categorization.
 
 ---

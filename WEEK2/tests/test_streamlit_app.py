@@ -285,3 +285,18 @@ def test_welcome_state_when_database_is_empty(tmp_path, monkeypatch):
             sample_btn = b
             break
     assert sample_btn is not None
+
+
+def test_settings_displays_ocr_engine_status():
+    """Verifies that Step 5 Settings displays local OCR engine status and guidance."""
+    at = AppTest.from_file(APP_PATH, default_timeout=15.0)
+    at.run()
+
+    # Navigate to Step 5: Settings & Privacy
+    at.sidebar.radio[0].set_value("5. ⚙️ Settings & Privacy").run()
+    assert not at.exception
+
+    # Check for OCR Engine Status subheader
+    subheaders = [s.value for s in at.subheader]
+    assert any("OCR Engine Status" in s for s in subheaders)
+

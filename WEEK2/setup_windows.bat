@@ -96,6 +96,11 @@ echo   - Double-click 'run_paperpilot.bat' to launch the app.
 echo   - The dashboard opens locally in your browser at:
 echo     http://localhost:8501
 echo.
+echo OCR Note:
+echo   - Digital text PDFs extract immediately with zero additional tools.
+echo   - Optional: Install Tesseract-OCR (https://github.com/UB-Mannheim/tesseract/wiki)
+echo     if you need to extract text from scanned or image-only exam papers.
+echo.
 echo AI Note:
 echo   - Core question extraction, clustering, and checklists
 echo     work 100%% offline without any AI installed.
