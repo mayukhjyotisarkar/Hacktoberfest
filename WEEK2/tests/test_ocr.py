@@ -381,3 +381,53 @@ def test_real_tesseract_ocr_execution():
     # Use real pytesseract on this image
     result = run_ocr_on_image(img, lang="eng")
     assert isinstance(result, OCRResult)
+
+
+# =============================================================================
+# 13. Regression: ExtractedDocument OCR interface properties
+# =============================================================================
+def test_extracted_document_ocr_interface_regression():
+    """
+    Regression test ensuring ExtractedDocument never raises AttributeError
+    when accessing ocr_available, ocr_page_count, scanned_page_count,
+    failed_page_count, ocr_warnings, or avg_ocr_confidence.
+    """
+    # 1. Plain text document
+    doc_text = ExtractedDocument(
+        filename="plain.pdf",
+        pages=[
+            ExtractedPage(page_number=1, text="Sample text", char_count=11, extraction_method="text"),
+        ],
+        total_pages=1,
+        total_chars=11,
+    )
+    assert doc_text.ocr_page_count == 0
+    assert doc_text.scanned_page_count == 0
+    assert doc_text.failed_page_count == 0
+    assert doc_text.ocr_warnings == []
+    assert doc_text.avg_ocr_confidence is None
+    assert isinstance(doc_text.ocr_available, bool)
+
+    # 2. Document with mixed OCR and failed pages
+    doc_mixed = ExtractedDocument(
+        filename="mixed.pdf",
+        pages=[
+            ExtractedPage(page_number=1, text="Text 1", char_count=6, extraction_method="text"),
+            ExtractedPage(page_number=2, text="OCR text", char_count=8, extraction_method="ocr", ocr_confidence=85.0),
+            ExtractedPage(page_number=3, text="", char_count=0, extraction_method="failed", error_message="Tesseract missing"),
+        ],
+        total_pages=3,
+        total_chars=14,
+    )
+    assert doc_mixed.ocr_page_count == 1
+    assert doc_mixed.scanned_page_count == 2
+    assert doc_mixed.failed_page_count == 1
+    assert doc_mixed.ocr_warnings == ["Page 3: Tesseract missing"]
+    assert doc_mixed.avg_ocr_confidence == 85.0
+
+    # 3. Verify ocr_available reflects is_tesseract_available
+    with patch("paperpilot.pdf_extractor.is_tesseract_available", return_value=False):
+        assert doc_mixed.ocr_available is False
+
+    with patch("paperpilot.pdf_extractor.is_tesseract_available", return_value=True):
+        assert doc_mixed.ocr_available is True

@@ -387,7 +387,7 @@ if nav_choice == "1. 📤 Upload Papers":
 
                 # Check if document yielded zero usable text (e.g. blank scan or missing Tesseract)
                 if extracted_doc.total_chars == 0:
-                    if not extracted_doc.ocr_available:
+                    if not is_tesseract_available():
                         st.warning(
                             f"⚠️ **Scanned PDF Detected in `{filename}`!**\n\n"
                             f"This document contains image-only pages and requires Optical Character Recognition (OCR), "

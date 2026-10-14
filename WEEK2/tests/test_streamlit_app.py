@@ -300,3 +300,87 @@ def test_settings_displays_ocr_engine_status():
     subheaders = [s.value for s in at.subheader]
     assert any("OCR Engine Status" in s for s in subheaders)
 
+
+def test_upload_scanned_pdf_without_tesseract_shows_guidance_without_crash():
+    """
+    Regression test for AttributeError: 'ExtractedDocument' object has no attribute 'ocr_available'.
+    Verifies that uploading a scanned PDF (0 extractable chars) when Tesseract is not installed
+    displays the actionable guidance warning banner without crashing.
+    """
+    from unittest.mock import patch
+    from paperpilot.pdf_extractor import ExtractedDocument
+
+    at = AppTest.from_file(APP_PATH, default_timeout=15.0)
+    at.run()
+
+    at.file_uploader[0].upload("scanned_sample.pdf", b"%PDF-1.4 mock scanned file")
+    extract_btn = [b for b in at.button if "Extract" in b.label][0]
+    extract_btn.click()
+
+    scanned_doc = ExtractedDocument(
+        filename="scanned_sample.pdf",
+        pages=[],
+        total_pages=1,
+        total_chars=0,
+        is_scanned=True,
+    )
+
+    with patch("paperpilot.ocr.is_tesseract_available", return_value=False), \
+         patch("paperpilot.pdf_extractor.extract_text_from_pdf", return_value=scanned_doc):
+        at.run()
+        assert not at.exception
+        warnings = [w.value for w in at.warning]
+        assert any("Scanned PDF Detected" in w for w in warnings)
+        assert any("Tesseract-OCR" in w for w in warnings)
+
+
+def test_upload_text_pdf_without_tesseract_succeeds(tmp_path, monkeypatch):
+    """
+    Verifies that uploading a text-based PDF when Tesseract is not installed
+    succeeds completely without crashing or prompting for OCR.
+    """
+    from unittest.mock import patch
+    from paperpilot.pdf_extractor import ExtractedDocument, ExtractedPage
+    import app
+
+    test_db = tmp_path / "test_upload_text.db"
+    monkeypatch.setenv("PAPERPILOT_DB_PATH", str(test_db))
+    monkeypatch.setattr(app, "DB_PATH", test_db)
+    test_storage = PaperPilotStorage(db_path=test_db)
+    monkeypatch.setattr(app, "storage", test_storage)
+
+    at = AppTest.from_file(APP_PATH, default_timeout=15.0)
+    at.run()
+
+    at.file_uploader[0].upload("os_2024.pdf", b"%PDF-1.4 mock text file")
+    extract_btn = [b for b in at.button if "Extract" in b.label][0]
+    extract_btn.click()
+
+    text_doc = ExtractedDocument(
+        filename="os_2024.pdf",
+        subject="Operating Systems",
+        year=2024,
+        pages=[
+            ExtractedPage(
+                page_number=1,
+                text="1. Explain the differences between preemptive and non-preemptive scheduling.\n2. Define thrashing in virtual memory.",
+                char_count=100,
+                extraction_method="text",
+            )
+        ],
+        total_pages=1,
+        total_chars=100,
+        is_scanned=False,
+    )
+
+    with patch("paperpilot.ocr.is_tesseract_available", return_value=False), \
+         patch("paperpilot.pdf_extractor.extract_text_from_pdf", return_value=text_doc):
+        at.run()
+        assert not at.exception
+        # Verify papers and questions were saved to the database
+        saved_papers = test_storage.get_papers()
+        assert any(p["filename"] == "os_2024.pdf" for p in saved_papers)
+        questions = test_storage.get_questions(source_file="os_2024.pdf")
+        assert len(questions) >= 2
+
+

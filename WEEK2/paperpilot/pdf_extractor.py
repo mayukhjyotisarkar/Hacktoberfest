@@ -49,11 +49,6 @@ class ExtractedDocument:
     total_chars: int = 0
     is_scanned: bool = False
     warning_message: Optional[str] = None
-    scanned_page_count: int = 0
-    ocr_page_count: int = 0
-    failed_page_count: int = 0
-    ocr_available: bool = True
-    ocr_warnings: List[str] = field(default_factory=list)
 
     @property
     def full_text(self) -> str:
@@ -63,16 +58,45 @@ class ExtractedDocument:
         )
 
     @property
+    def ocr_page_count(self) -> int:
+        """Count of pages extracted using OCR."""
+        return sum(1 for p in self.pages if getattr(p, "extraction_method", "text") == "ocr")
+
+    @property
+    def scanned_page_count(self) -> int:
+        """Count of pages that were image-only or required OCR."""
+        return sum(1 for p in self.pages if getattr(p, "extraction_method", "text") in ("ocr", "failed"))
+
+    @property
+    def failed_page_count(self) -> int:
+        """Count of pages where extraction failed."""
+        return sum(1 for p in self.pages if getattr(p, "extraction_method", "text") == "failed")
+
+    @property
+    def ocr_warnings(self) -> List[str]:
+        """List of warning messages for pages where extraction failed."""
+        return [
+            f"Page {p.page_number}: {p.error_message}"
+            for p in self.pages
+            if getattr(p, "extraction_method", "text") == "failed" and getattr(p, "error_message", None)
+        ]
+
+    @property
     def avg_ocr_confidence(self) -> Optional[float]:
         """Calculates average OCR confidence across pages that were OCR'd."""
         confs = [
             p.ocr_confidence
             for p in self.pages
-            if p.extraction_method == "ocr" and p.ocr_confidence is not None
+            if getattr(p, "extraction_method", "text") == "ocr" and p.ocr_confidence is not None
         ]
         if not confs:
             return None
         return round(sum(confs) / len(confs), 2)
+
+    @property
+    def ocr_available(self) -> bool:
+        """Indicates whether local OCR is available on the host system."""
+        return is_tesseract_available()
 
 
 def extract_page_hybrid(
@@ -262,9 +286,6 @@ def extract_text_from_pdf(
         digital_chars = 0
         scanned_page_count = 0
         ocr_page_count = 0
-        failed_page_count = 0
-        ocr_available = True
-        ocr_warnings: List[str] = []
 
         for page_idx in range(total_pages):
             page = doc[page_idx]
@@ -284,11 +305,6 @@ def extract_text_from_pdf(
                 ocr_page_count += 1
             elif extracted_page.extraction_method == "failed":
                 scanned_page_count += 1
-                failed_page_count += 1
-                if extracted_page.error_message:
-                    ocr_warnings.append(f"Page {page_idx + 1}: {extracted_page.error_message}")
-                    if "tesseract" in extracted_page.error_message.lower():
-                        ocr_available = False
 
         total_chars = sum(p.char_count for p in pages)
         is_scanned = (digital_chars < min_chars_threshold) or (scanned_page_count > 0 and digital_chars == 0)
@@ -299,7 +315,7 @@ def extract_text_from_pdf(
                 f"'{filename}' has only {total_chars} extractable character(s) across {total_pages} page(s). "
                 "This document appears to be a scanned image or photo. "
             )
-            if not ocr_available:
+            if not is_tesseract_available():
                 warning_msg += (
                     "Local OCR was not available because Tesseract is not installed on this system.\n\n"
                     + INSTALL_GUIDANCE_MESSAGE
@@ -316,11 +332,6 @@ def extract_text_from_pdf(
             total_chars=total_chars,
             is_scanned=is_scanned,
             warning_message=warning_msg,
-            scanned_page_count=scanned_page_count,
-            ocr_page_count=ocr_page_count,
-            failed_page_count=failed_page_count,
-            ocr_available=ocr_available,
-            ocr_warnings=ocr_warnings,
         )
 
     except PDFExtractionError:
