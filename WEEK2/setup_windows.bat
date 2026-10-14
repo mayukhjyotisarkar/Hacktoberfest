@@ -98,8 +98,9 @@ echo     http://localhost:8501
 echo.
 echo OCR Note:
 echo   - Digital text PDFs extract immediately with zero additional tools.
-echo   - Optional: Install Tesseract-OCR (https://github.com/UB-Mannheim/tesseract/wiki)
-echo     if you need to extract text from scanned or image-only exam papers.
+echo   - Scanned or photo exam papers can be set up automatically with 1-click
+echo     directly inside the web app ('Set Up OCR Automatically'), or manually
+echo     from: https://github.com/UB-Mannheim/tesseract/wiki
 echo.
 echo AI Note:
 echo   - Core question extraction, clustering, and checklists

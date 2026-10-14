@@ -17,7 +17,7 @@ PaperPilot is a privacy-first, offline-capable study tool built for college stud
 
 | Feature | Description | Architecture / Implementation |
 | :--- | :--- | :--- |
-| **📄 PDF Extraction** | Hybrid extraction: fast digital text extraction with PyMuPDF, falling back to local Tesseract OCR on scanned/image pages. | PyMuPDF (`pymupdf`) + Local Tesseract OCR (`pytesseract`, `Pillow`) |
+| **📄 Hybrid PDF Extraction & OCR** | Fast digital text extraction with PyMuPDF, falling back to local Tesseract OCR on scanned/image pages with secure 1-click automatic setup. | PyMuPDF (`pymupdf`) + Local Tesseract OCR (`pytesseract`, `Pillow`) + Automated Bootstrapper (`paperpilot/ocr_setup.py`) |
 | **🔍 Numbered Parser** | Detects question boundaries (`1.`, `2(a)`, `(i)`) while rejecting non-question headers (`Time: 3 Hours`, `Max Marks`). | Custom regex delimiter engine with lookahead & false-positive suppression |
 | **🔁 Leader Clustering** | Groups repeated and similar questions across years using cosine similarity without transitive chain-merging. | TF-IDF Vectorizer + Cosine Similarity (`scikit-learn`) + Leader Clustering |
 | **📈 Frequency Analytics** | Calculates recurrence counts, distinct paper distributions, and exam year breakdowns. | Tabular aggregation (`pandas`) |
@@ -30,8 +30,8 @@ PaperPilot is a privacy-first, offline-capable study tool built for college stud
 
 ## ⚠️ Important Limitations
 
-1. **Scanned PDFs & OCR Requirements:**  
-   Standard digital text PDFs (where text can be highlighted) extract immediately with zero external tools. Scanned photocopies and smartphone camera images require the open-source **Tesseract-OCR** engine installed locally on your Windows machine. If Tesseract is not installed, digital PDFs continue working normally, and PaperPilot will display clear installation guidance.
+1. **Scanned PDFs & Local OCR Setup:**  
+   Standard digital text PDFs (where text can be highlighted) extract immediately with zero external tools. Scanned photocopies and smartphone camera images require the open-source **Tesseract-OCR** engine. PaperPilot includes a **1-click automatic setup assistant** (`⚡ Set Up OCR Automatically`) that securely downloads and verifies the official Windows installer via SHA-256 checksums, or you can install it manually from [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki). Once installed, OCR operates 100% locally and offline.
 2. **AI is 100% Optional:**  
    The entire core pipeline—question extraction, clustering, occurrence counts, revision checklists, and CSV exports—runs **completely offline with zero AI models installed**.
 3. **Local AI Hardware:**  
@@ -184,7 +184,7 @@ PaperPilot was designed from day one to guarantee complete student privacy:
 | Problem | Cause | Solution |
 | :--- | :--- | :--- |
 | `'python' is not recognized as an internal or external command` | Python was installed without checking "Add python.exe to PATH". | Reinstall Python from [python.org](https://www.python.org/downloads/) and check the box: **"Add python.exe to PATH"**. |
-| `⚠️ Scanned PDF Detected (Tesseract not installed)` | The PDF contains image scans, and Tesseract-OCR is missing. | Install Tesseract-OCR from [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki). Text-based PDFs continue to work without OCR. |
+| `⚠️ Scanned PDF Detected (Tesseract not installed)` | The PDF contains image scans, and Tesseract-OCR is missing. | Click **"⚡ Set Up OCR Automatically"** in the web interface for 1-click verified setup, or install manually from [UB Mannheim](https://github.com/UB-Mannheim/tesseract/wiki). Text-based PDFs continue to work without OCR. |
 | `Port 8501 is already in use` | Another Streamlit instance or local service is running. | Streamlit will automatically attempt port 8502 or higher. To stop old instances, close their terminal windows. |
 | `⚠️ Local Ollama service is not running` | Ollama is not started in the background. | Launch the Ollama application from your Start Menu or system tray. |
 | `⚠️ Configured model 'qwen2.5-coder:1.5b-base' is not installed` | The candidate model has not been downloaded yet. | Run `ollama run qwen2.5-coder:1.5b-base` in your terminal once. |
@@ -193,7 +193,7 @@ PaperPilot was designed from day one to guarantee complete student privacy:
 
 ## 🧪 Running the Test Suite
 
-PaperPilot maintains a rigorous automated test suite of **165 tests** covering hybrid PDF extraction, local OCR, TF-IDF vectorization, leader clustering, ACID persistence, loopback security, and Streamlit UI flows:
+PaperPilot maintains a rigorous automated test suite of **184 tests** covering hybrid PDF extraction, automated local OCR bootstrapper, SHA-256 integrity checks, zip-slip defense, TF-IDF vectorization, leader clustering, ACID persistence, loopback security, and Streamlit UI flows:
 
 ```bash
 # Activate your virtual environment first
@@ -223,6 +223,7 @@ We are actively validating PaperPilot with real college students!
 - [x] Phase 5 (Stage 5): Windows-friendly packaging, 1-click batch scripts, diagnostics, and student validation protocol.
 - [x] Phase 5 (Stage 6): Student-friendly 3-step UI/UX redesign and 1-click sample paper onboarding.
 - [x] Phase 5 (Stage 7): Hybrid PDF extraction with local Tesseract-OCR for scanned and mixed exam papers.
+- [x] Phase 5 (Stage 8): Automated local OCR setup with SHA-256 integrity verification, winget fallback, and zip-slip path traversal defense.
 - [ ] Future: Single-file desktop installer (`.exe`) bundling Python for zero-terminal setup.
 - [ ] Future: Department-level course syllabus mapping and multi-subject categorization.
 

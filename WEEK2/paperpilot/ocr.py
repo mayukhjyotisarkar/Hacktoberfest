@@ -47,15 +47,18 @@ COMMON_WINDOWS_TESSERACT_PATHS = [
     r"C:\Program Files\Tesseract-OCR\tesseract.exe",
     r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
     os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Programs\Tesseract-OCR\tesseract.exe"),
+    os.path.join(os.environ.get("LOCALAPPDATA", ""), r"PaperPilot\tools\tesseract\tesseract.exe"),
+    os.path.join(os.environ.get("LOCALAPPDATA", ""), r"PaperPilot\tesseract\tesseract.exe"),
+    str(Path(".paperpilot/tools/tesseract/tesseract.exe").resolve()),
     r"C:\tools\tesseract\tesseract.exe",
 ]
 
 INSTALL_GUIDANCE_MESSAGE = (
     "Tesseract-OCR is required to read scanned or image-only PDF pages locally.\n\n"
     "To enable local OCR on Windows:\n"
-    "1. Download the Windows installer from: https://github.com/UB-Mannheim/tesseract/wiki\n"
-    "2. Run the installer (default path 'C:\\Program Files\\Tesseract-OCR' is auto-detected).\n"
-    "3. Restart PaperPilot using 'run_paperpilot.bat'.\n\n"
+    "• Automatic Setup: Click '⚡ Set Up OCR Automatically' to let PaperPilot set up the verified engine.\n"
+    "• Manual Setup: Download the official installer from: https://github.com/UB-Mannheim/tesseract/wiki\n"
+    "  (Default path 'C:\\Program Files\\Tesseract-OCR' is automatically detected).\n\n"
     "Note: Text-based PDFs will continue to work normally even without Tesseract installed."
 )
 
@@ -68,7 +71,7 @@ def get_tesseract_cmd() -> Optional[str]:
     1. TESSERACT_CMD environment variable (if explicitly set)
     2. pytesseract default command if already pointing to a valid executable
     3. System PATH via shutil.which('tesseract')
-    4. Common default Windows installation directories
+    4. Common default Windows installation directories and PaperPilot managed paths
     """
     # 1. Custom environment variable
     env_cmd = os.environ.get("TESSERACT_CMD")
@@ -96,11 +99,17 @@ def get_tesseract_cmd() -> Optional[str]:
 def ensure_tesseract_configured() -> bool:
     """
     Configures pytesseract with the discovered executable path if available.
+    Also ensures TESSDATA_PREFIX points to the adjacent tessdata directory if not set.
     Returns True if an executable was found and configured, False otherwise.
     """
     cmd = get_tesseract_cmd()
     if cmd:
         pytesseract.pytesseract.tesseract_cmd = cmd
+        # Ensure TESSDATA_PREFIX is configured if tessdata exists alongside executable
+        if "TESSDATA_PREFIX" not in os.environ:
+            adjacent_tessdata = Path(cmd).parent / "tessdata"
+            if adjacent_tessdata.is_dir():
+                os.environ["TESSDATA_PREFIX"] = str(adjacent_tessdata)
         return True
     return False
 

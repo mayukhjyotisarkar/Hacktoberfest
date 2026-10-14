@@ -22,6 +22,7 @@ from paperpilot.ocr import (
     get_tesseract_version,
     INSTALL_GUIDANCE_MESSAGE,
 )
+from paperpilot.ocr_setup import run_ocr_setup, OCRSetupResult
 from paperpilot.question_parser import parse_questions, QuestionItem
 from paperpilot.similarity import cluster_questions, SimilarityAnalysisResult
 from paperpilot.analytics import (
@@ -392,10 +393,33 @@ if nav_choice == "1. 📤 Upload Papers":
                             f"⚠️ **Scanned PDF Detected in `{filename}`!**\n\n"
                             f"This document contains image-only pages and requires Optical Character Recognition (OCR), "
                             f"but Tesseract-OCR is not installed or detected on this machine.\n\n"
-                            f"Text-based PDFs work immediately. To enable scanned PDF support, install Tesseract-OCR."
+                            f"Text-based PDFs work immediately. To enable scanned PDF support, set up local OCR below."
                         )
-                        with st.expander("📥 How to install Tesseract-OCR on Windows (3 quick steps)", expanded=False):
-                            st.markdown(INSTALL_GUIDANCE_MESSAGE)
+                        col_auto, col_man = st.columns([1, 1])
+                        with col_auto:
+                            if st.button("⚡ Set Up OCR Automatically", type="primary", key=f"auto_ocr_btn_{filename}"):
+                                with st.status("Setting up local OCR engine...", expanded=True) as status:
+                                    def ui_progress(msg: str, pct: float):
+                                        st.write(f"• {msg}")
+                                    res = run_ocr_setup(progress_callback=ui_progress)
+                                    if res.success:
+                                        if res.status == "installed_successfully":
+                                            status.update(label="✅ Tesseract-OCR installed successfully!", state="complete", expanded=False)
+                                            st.success(res.message)
+                                            st.rerun()
+                                        elif res.status == "installer_launched":
+                                            status.update(label="ℹ️ Installer launched — setup wizard open", state="complete", expanded=True)
+                                            st.info(res.message)
+                                        else:
+                                            status.update(label="✅ Tesseract-OCR is ready!", state="complete", expanded=False)
+                                            st.success(res.message)
+                                            st.rerun()
+                                    else:
+                                        status.update(label="❌ OCR Setup Failed", state="error", expanded=True)
+                                        st.error(res.message)
+                        with col_man:
+                            with st.expander("📥 Manual Installation Instructions", expanded=False):
+                                st.markdown(INSTALL_GUIDANCE_MESSAGE)
                     else:
                         st.warning(
                             f"⚠️ No usable question text could be extracted from `{filename}`. "
@@ -1000,9 +1024,32 @@ elif nav_choice == "5. ⚙️ Settings & Privacy":
         st.caption(f"Binary path: `{tess_path}`. Scanned and image-only PDF pages are automatically converted to text.")
     else:
         st.info("ℹ️ **Tesseract-OCR is not installed or not detected on PATH.**")
-        st.caption("Standard digital text PDFs work 100% offline. To support scanned exam paper photos and image PDFs, install Tesseract-OCR.")
-        with st.expander("📥 Windows Installation Instructions", expanded=False):
-            st.markdown(INSTALL_GUIDANCE_MESSAGE)
+        st.caption("Standard digital text PDFs work 100% offline. To support scanned exam paper photos and image PDFs, set up Tesseract-OCR.")
+        col_set_auto, col_set_man = st.columns([1, 1])
+        with col_set_auto:
+            if st.button("⚡ Set Up OCR Automatically", type="primary", key="settings_setup_ocr_btn"):
+                with st.status("Setting up local OCR engine...", expanded=True) as status:
+                    def settings_progress(msg: str, pct: float):
+                        st.write(f"• {msg}")
+                    res = run_ocr_setup(progress_callback=settings_progress)
+                    if res.success:
+                        if res.status == "installed_successfully":
+                            status.update(label="✅ Tesseract-OCR installed successfully!", state="complete", expanded=False)
+                            st.success(res.message)
+                            st.rerun()
+                        elif res.status == "installer_launched":
+                            status.update(label="ℹ️ Installer launched — setup wizard open", state="complete", expanded=True)
+                            st.info(res.message)
+                        else:
+                            status.update(label="✅ Tesseract-OCR is ready!", state="complete", expanded=False)
+                            st.success(res.message)
+                            st.rerun()
+                    else:
+                        status.update(label="❌ OCR Setup Failed", state="error", expanded=True)
+                        st.error(res.message)
+        with col_set_man:
+            with st.expander("📥 Manual Installation Instructions", expanded=False):
+                st.markdown(INSTALL_GUIDANCE_MESSAGE)
 
     st.markdown("---")
     st.subheader("⚠️ Reset Database")
