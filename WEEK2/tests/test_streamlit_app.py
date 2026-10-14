@@ -109,3 +109,58 @@ def test_settings_and_threshold_slider():
     # Reset button is disabled until checkbox is checked
     reset_btn = at.button[0]
     assert reset_btn.disabled is True
+
+
+def test_repeated_questions_when_ai_is_unavailable():
+    """Verifies that Repeated Questions gracefully handles Ollama being offline."""
+    from unittest.mock import patch
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+
+    # Navigate to Repeated Questions
+    at.sidebar.radio[0].set_value("🔁 Repeated Questions").run()
+    assert not at.exception
+
+    # Find the AI button
+    ai_btn = None
+    for b in at.button:
+        if "Generate AI Topic Labels" in b.label:
+            ai_btn = b
+            break
+    assert ai_btn is not None
+
+    # Click the AI button while Ollama check_health returns False
+    with patch("paperpilot.local_ai.LocalAIClient.check_health", return_value=False):
+        ai_btn.click().run()
+        assert not at.exception
+        # Warning displayed that Ollama is unreachable
+        warnings = [w.value for w in at.warning]
+        assert any("not running or unreachable" in w for w in warnings)
+
+
+def test_repeated_questions_displays_cached_ai_label():
+    """Verifies that an existing cached AI label is rendered inside the cluster expander."""
+    from paperpilot.topic_labeler import CachedTopicLabel
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+
+    # Set cached AI label for cluster_001
+    at.session_state["ai_cluster_labels"]["cluster_001"] = CachedTopicLabel(
+        topic="Deadlock Conditions",
+        confidence="high",
+        reasoning="Four conditions required for deadlock",
+        model="qwen2.5-coder:1.5b-base",
+        latency_ms=115.0,
+        created_at=1000.0,
+        cache_key="mock_hash",
+    )
+
+    at.sidebar.radio[0].set_value("🔁 Repeated Questions").run()
+    assert not at.exception
+
+    # Confirm caption contains the loaded status
+    captions = [c.value for c in at.caption]
+    assert any("AI topic labels loaded" in c for c in captions)
+

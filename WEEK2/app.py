@@ -23,6 +23,13 @@ from paperpilot.analytics import (
     calculate_dataset_metrics,
 )
 from paperpilot.storage import PaperPilotStorage, StorageError
+from paperpilot.local_ai import LocalAIClient, AIErrorKind
+from paperpilot.topic_labeler import (
+    ClusterTopicLabeler,
+    get_topic_label_cache,
+    compute_cluster_cache_key,
+    PROMPT_VERSION,
+)
 
 # Set Streamlit page layout and title
 st.set_page_config(
@@ -57,6 +64,12 @@ if "cache_dirty" not in st.session_state:
 if "review_file_filter" not in st.session_state:
     st.session_state["review_file_filter"] = "All Papers"
 
+if "ai_cluster_labels" not in st.session_state:
+    st.session_state["ai_cluster_labels"] = {}
+
+if "ai_cluster_errors" not in st.session_state:
+    st.session_state["ai_cluster_errors"] = {}
+
 
 def get_current_analysis(force_recompute: bool = False) -> SimilarityAnalysisResult:
     """
@@ -85,6 +98,11 @@ def get_current_analysis(force_recompute: bool = False) -> SimilarityAnalysisRes
 def mark_data_dirty() -> None:
     """Flags that underlying questions or settings have changed and need re-analysis."""
     st.session_state["cache_dirty"] = True
+    if "ai_cluster_labels" in st.session_state:
+        st.session_state["ai_cluster_labels"] = {}
+    if "ai_cluster_errors" in st.session_state:
+        st.session_state["ai_cluster_errors"] = {}
+    get_topic_label_cache().clear()
 
 
 # =============================================================================
@@ -555,12 +573,63 @@ elif nav_choice == "🔁 Repeated Questions":
                 f"Try lowering the threshold in the sidebar slider (e.g. to 0.50 or 0.60)."
             )
         else:
+            # Explicit AI Topic Labeling Controls
+            col_ai_btn, col_ai_info = st.columns([1, 2])
+            with col_ai_btn:
+                gen_ai_clicked = st.button("🏷️ Generate AI Topic Labels", help="Generates concise topic labels using local Ollama (qwen2.5-coder:1.5b-base)")
+            with col_ai_info:
+                has_ai_labels = bool(st.session_state.get("ai_cluster_labels"))
+                if has_ai_labels:
+                    st.caption("✅ AI topic labels loaded (cached in memory).")
+                else:
+                    st.caption("ℹ️ Optional: Click to label clusters with local AI (requires Ollama).")
+
+            if gen_ai_clicked:
+                ai_client = LocalAIClient()
+                if not ai_client.check_health():
+                    st.warning("⚠️ Local Ollama service is not running or unreachable at http://localhost:11434. Deterministic clustering remains fully functional.")
+                elif not ai_client.is_model_available():
+                    st.warning(f"⚠️ Configured model '{ai_client.default_model}' is not installed in local Ollama. Deterministic clustering remains fully functional.")
+                else:
+                    labeler = ClusterTopicLabeler(ai_client=ai_client)
+                    labeled_count = 0
+                    error_count = 0
+                    for cluster in analysis.repeated_clusters:
+                        label, err = labeler.label_cluster(cluster)
+                        if label:
+                            st.session_state["ai_cluster_labels"][cluster.cluster_id] = label
+                            labeled_count += 1
+                        elif err:
+                            st.session_state["ai_cluster_errors"][cluster.cluster_id] = err.message
+                            error_count += 1
+                    if labeled_count > 0:
+                        st.success(f"Generated AI topic labels for {labeled_count} repeated question clusters!")
+                    elif error_count > 0:
+                        st.warning("AI labeling encountered errors. Existing clusters remain unchanged.")
+                    st.rerun()
+
             for cluster in analysis.repeated_clusters:
                 years_badge = ", ".join(str(y) for y in cluster.years) if cluster.years else "N/A"
                 match_badge = "Exact Duplicate" if cluster.is_exact else f"Similar (~{int(cluster.avg_similarity * 100)}%)"
 
+                ai_label = st.session_state.get("ai_cluster_labels", {}).get(cluster.cluster_id)
+                if ai_label:
+                    cluster_sub = cluster.questions[0].subject if cluster.questions else "Computer Science"
+                    member_texts = [q.text for q in cluster.questions if q.text.strip() != cluster.representative_text.strip()]
+                    expected_key = compute_cluster_cache_key(
+                        model_name=ai_label.model,
+                        prompt_version=PROMPT_VERSION,
+                        subject=cluster_sub,
+                        representative_text=cluster.representative_text,
+                        member_texts=member_texts,
+                    )
+                    if ai_label.cache_key != expected_key:
+                        ai_label = None
+
+                expander_title_prefix = f"🏷️ [{ai_label.topic}] " if ai_label else ""
+
                 with st.expander(
-                    f"📌 [{cluster.cluster_id.upper()}] {cluster.representative_text[:75]}... "
+                    f"📌 [{cluster.cluster_id.upper()}] {expander_title_prefix}{cluster.representative_text[:70]}... "
                     f"({cluster.paper_count} Papers, {cluster.occurrence_count} Occurrences)",
                     expanded=True,
                 ):
@@ -569,6 +638,24 @@ elif nav_choice == "🔁 Repeated Questions":
                     col_m2.metric("Total Occurrences", cluster.occurrence_count)
                     col_m3.metric("Match Type", match_badge)
                     col_m4.metric("Exam Years", years_badge)
+
+                    # Display AI Topic Badge if generated
+                    if ai_label:
+                        conf_icon = "🟢" if ai_label.confidence == "high" else ("🟡" if ai_label.confidence == "medium" else "⚪")
+                        st.markdown(
+                            f"**🏷️ AI Suggested Topic:** `{ai_label.topic}` "
+                            f"({conf_icon} Confidence: *{ai_label.confidence.capitalize()}*)"
+                        )
+                        if ai_label.reasoning:
+                            st.caption(
+                                f"💡 *Reasoning:* {ai_label.reasoning} | "
+                                f"Latency: `{ai_label.latency_ms:.0f} ms` | Model: `{ai_label.model}`"
+                            )
+                        st.markdown("---")
+                    elif cluster.cluster_id in st.session_state.get("ai_cluster_errors", {}):
+                        err_text = st.session_state["ai_cluster_errors"][cluster.cluster_id]
+                        st.caption(f"⚠️ *AI Topic Label unavailable: {err_text}*")
+                        st.markdown("---")
 
                     st.markdown("**Representative Anchor Question:**")
                     st.info(f"**\"{cluster.representative_text}\"**")
@@ -650,8 +737,23 @@ elif nav_choice == "📈 Topic & Frequency Analysis":
             st.subheader("Complete Cluster Breakdown")
             all_cluster_data = []
             for c in analysis.clusters:
+                ai_lbl = st.session_state.get("ai_cluster_labels", {}).get(c.cluster_id)
+                if ai_lbl:
+                    c_sub = c.questions[0].subject if c.questions else "Computer Science"
+                    m_texts = [q.text for q in c.questions if q.text.strip() != c.representative_text.strip()]
+                    exp_key = compute_cluster_cache_key(
+                        model_name=ai_lbl.model,
+                        prompt_version=PROMPT_VERSION,
+                        subject=c_sub,
+                        representative_text=c.representative_text,
+                        member_texts=m_texts,
+                    )
+                    if ai_lbl.cache_key != exp_key:
+                        ai_lbl = None
+
                 all_cluster_data.append({
                     "Cluster ID": c.cluster_id,
+                    "AI Topic": ai_lbl.topic if ai_lbl else "N/A",
                     "Topic / Representative": c.representative_text,
                     "Distinct Papers": c.paper_count,
                     "Occurrences": c.occurrence_count,
