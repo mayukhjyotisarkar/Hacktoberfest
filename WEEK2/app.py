@@ -30,6 +30,12 @@ from paperpilot.topic_labeler import (
     compute_cluster_cache_key,
     PROMPT_VERSION,
 )
+from paperpilot.revision_notes import (
+    ClusterRevisionNotesGenerator,
+    get_revision_notes_cache,
+    compute_revision_notes_cache_key,
+    REVISION_PROMPT_VERSION,
+)
 
 # Set Streamlit page layout and title
 st.set_page_config(
@@ -70,6 +76,12 @@ if "ai_cluster_labels" not in st.session_state:
 if "ai_cluster_errors" not in st.session_state:
     st.session_state["ai_cluster_errors"] = {}
 
+if "ai_cluster_revision_notes" not in st.session_state:
+    st.session_state["ai_cluster_revision_notes"] = {}
+
+if "ai_cluster_revision_errors" not in st.session_state:
+    st.session_state["ai_cluster_revision_errors"] = {}
+
 
 def get_current_analysis(force_recompute: bool = False) -> SimilarityAnalysisResult:
     """
@@ -102,7 +114,12 @@ def mark_data_dirty() -> None:
         st.session_state["ai_cluster_labels"] = {}
     if "ai_cluster_errors" in st.session_state:
         st.session_state["ai_cluster_errors"] = {}
+    if "ai_cluster_revision_notes" in st.session_state:
+        st.session_state["ai_cluster_revision_notes"] = {}
+    if "ai_cluster_revision_errors" in st.session_state:
+        st.session_state["ai_cluster_revision_errors"] = {}
     get_topic_label_cache().clear()
+    get_revision_notes_cache().clear()
 
 
 # =============================================================================
@@ -655,6 +672,79 @@ elif nav_choice == "🔁 Repeated Questions":
                     elif cluster.cluster_id in st.session_state.get("ai_cluster_errors", {}):
                         err_text = st.session_state["ai_cluster_errors"][cluster.cluster_id]
                         st.caption(f"⚠️ *AI Topic Label unavailable: {err_text}*")
+                        st.markdown("---")
+
+                    # Grounded AI Revision Notes Section
+                    rev_notes = st.session_state.get("ai_cluster_revision_notes", {}).get(cluster.cluster_id)
+                    if rev_notes:
+                        cluster_sub = cluster.questions[0].subject if cluster.questions else "Computer Science"
+                        member_texts = [q.text for q in cluster.questions if q.text.strip() != cluster.representative_text.strip()]
+                        expected_rev_key = compute_revision_notes_cache_key(
+                            model_name=rev_notes.model,
+                            prompt_version=REVISION_PROMPT_VERSION,
+                            subject=cluster_sub,
+                            representative_text=cluster.representative_text,
+                            member_texts=member_texts,
+                        )
+                        if rev_notes.cache_key != expected_rev_key:
+                            rev_notes = None
+
+                    col_rev_btn, col_rev_info = st.columns([1, 2])
+                    with col_rev_btn:
+                        btn_rev_label = "🔄 Refresh Revision Notes" if rev_notes else "📝 Generate Revision Notes"
+                        rev_btn_clicked = st.button(
+                            btn_rev_label,
+                            key=f"btn_rev_{cluster.cluster_id}",
+                            help="Generates grounded revision notes based strictly on this cluster's questions using local Ollama",
+                        )
+
+                    if rev_btn_clicked:
+                        ai_client = LocalAIClient()
+                        if not ai_client.check_health():
+                            st.warning("⚠️ Local Ollama service is not running or unreachable at http://localhost:11434. Existing questions and analysis remain fully functional.")
+                        elif not ai_client.is_model_available():
+                            st.warning(f"⚠️ Configured model '{ai_client.default_model}' is not installed in local Ollama. Existing questions and analysis remain fully functional.")
+                        else:
+                            rev_gen = ClusterRevisionNotesGenerator(ai_client=ai_client)
+                            notes_res, notes_err = rev_gen.generate_notes_for_cluster(cluster, force_refresh=(rev_notes is not None))
+                            if notes_res:
+                                st.session_state["ai_cluster_revision_notes"][cluster.cluster_id] = notes_res
+                                st.session_state["ai_cluster_revision_errors"].pop(cluster.cluster_id, None)
+                                st.success(f"Generated grounded revision notes for [{cluster.cluster_id.upper()}]!")
+                            elif notes_err:
+                                st.session_state["ai_cluster_revision_errors"][cluster.cluster_id] = notes_err.message
+                                st.warning(f"Revision notes generation failed: {notes_err.message}")
+                            st.rerun()
+
+                    if rev_notes:
+                        conf_badge = "🟢 High Confidence" if rev_notes.confidence == "high" else ("🟡 Medium Confidence" if rev_notes.confidence == "medium" else "⚪ Uncertain Scope")
+                        st.markdown(f"**📝 AI Revision Notes** `({conf_badge})`")
+                        st.caption("ℹ️ *AI-generated revision assistance grounded strictly in the questions below. Not verified ground truth.*")
+
+                        st.markdown(f"**🎯 Revision Focus:** {rev_notes.focus}")
+
+                        st.markdown("**📌 Key Revision Points:**")
+                        for b in rev_notes.revision_bullets:
+                            st.markdown(f"- {b}")
+
+                        st.markdown(f"**🏷️ Key Concepts:** " + " • ".join(f"`{c}`" for c in rev_notes.key_concepts))
+
+                        with st.expander(f"📚 Grounded Source Questions ({len(rev_notes.sources)} Evidence Items)", expanded=False):
+                            for src in rev_notes.sources:
+                                yr_str = f"Year: {src.year}" if src.year is not None else "Year: N/A"
+                                mk_str = f"Marks: {src.marks}" if src.marks is not None else "Marks: N/A"
+                                lead_tag = "👑 [Leader Anchor]" if src.is_leader else f"Similarity: {src.similarity_to_representative:.3f}"
+                                st.markdown(
+                                    f"- **{src.source_file}** (Page {src.source_page}, {src.question_number}, {yr_str}, {mk_str}) — `{lead_tag}`\n"
+                                    f"  > *\"{src.text}\"*"
+                                )
+
+                        if rev_notes.reasoning:
+                            st.caption(f"💡 *Scope Rationale:* {rev_notes.reasoning} | Latency: `{rev_notes.latency_ms:.0f} ms` | Model: `{rev_notes.model}`")
+                        st.markdown("---")
+                    elif cluster.cluster_id in st.session_state.get("ai_cluster_revision_errors", {}):
+                        rev_err_msg = st.session_state["ai_cluster_revision_errors"][cluster.cluster_id]
+                        st.caption(f"⚠️ *Revision notes unavailable: {rev_err_msg}*")
                         st.markdown("---")
 
                     st.markdown("**Representative Anchor Question:**")

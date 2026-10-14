@@ -164,3 +164,92 @@ def test_repeated_questions_displays_cached_ai_label():
     captions = [c.value for c in at.caption]
     assert any("AI topic labels loaded" in c for c in captions)
 
+
+def test_repeated_questions_revision_notes_offline_handling():
+    """Verifies that clicking 'Generate Revision Notes' when Ollama is offline displays a clean warning."""
+    from unittest.mock import patch
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+
+    at.sidebar.radio[0].set_value("🔁 Repeated Questions").run()
+    assert not at.exception
+
+    # Locate the per-cluster 'Generate Revision Notes' button
+    rev_btn = None
+    for b in at.button:
+        if "Generate Revision Notes" in b.label:
+            rev_btn = b
+            break
+    assert rev_btn is not None
+
+    with patch("paperpilot.local_ai.LocalAIClient.check_health", return_value=False):
+        rev_btn.click().run()
+        assert not at.exception
+        warnings = [w.value for w in at.warning]
+        assert any("not running or unreachable" in w for w in warnings)
+
+
+def test_repeated_questions_renders_revision_notes_without_unsolicited_inference():
+    """Verifies that existing revision notes render cleanly and reruns trigger zero inference."""
+    from unittest.mock import patch
+    from paperpilot.revision_notes import GroundedRevisionNotes, SourceQuestionCitation, compute_revision_notes_cache_key, REVISION_PROMPT_VERSION
+
+    at = AppTest.from_file(APP_PATH)
+    at.run()
+
+    at.sidebar.radio[0].set_value("🔁 Repeated Questions").run()
+    assert not at.exception
+
+    # Fetch current analysis to obtain exact representative and member texts
+    analysis = at.session_state.get("analysis_cache")
+    if analysis and analysis.repeated_clusters:
+        target_cluster = analysis.repeated_clusters[0]
+        cid = target_cluster.cluster_id
+        cluster_sub = target_cluster.questions[0].subject if target_cluster.questions else "Computer Science"
+        member_texts = [q.text for q in target_cluster.questions if q.text.strip() != target_cluster.representative_text.strip()]
+        expected_key = compute_revision_notes_cache_key(
+            model_name="qwen2.5-coder:1.5b-base",
+            prompt_version=REVISION_PROMPT_VERSION,
+            subject=cluster_sub,
+            representative_text=target_cluster.representative_text,
+            member_texts=member_texts,
+        )
+
+        sample_src = SourceQuestionCitation(
+            question_id="q_sample",
+            source_file="sample.pdf",
+            source_page=1,
+            question_number="1",
+            year=2022,
+            marks="10",
+            text="Explain deadlock avoidance.",
+            similarity_to_representative=1.0,
+            is_leader=True,
+        )
+
+        at.session_state["ai_cluster_revision_notes"][cid] = GroundedRevisionNotes(
+            focus="Deadlock avoidance safety criteria",
+            revision_bullets=["Understand safety state matrices", "Review resource-request steps"],
+            key_concepts=["Deadlock Avoidance", "Safe State"],
+            confidence="high",
+            reasoning="Grounded in exam questions",
+            sources=[sample_src],
+            model="qwen2.5-coder:1.5b-base",
+            latency_ms=130.0,
+            created_at=1000.0,
+            cache_key=expected_key,
+        )
+
+        with patch("paperpilot.local_ai.LocalAIClient.send_generate_prompt") as mock_send:
+            # Re-run app (navigating within app)
+            at.run()
+            assert not at.exception
+            # Verify no unsolicited inference was triggered
+            mock_send.assert_not_called()
+
+            # Confirm revision notes text rendered
+            md_texts = [m.value for m in at.markdown]
+            assert any("Deadlock avoidance safety criteria" in m for m in md_texts)
+            assert any("Understand safety state matrices" in m for m in md_texts)
+

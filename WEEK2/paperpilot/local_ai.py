@@ -523,6 +523,44 @@ class LocalAIClient:
 
         return resp_data, latency_ms, None
 
+    def send_generate_prompt(
+        self,
+        prompt: str,
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        num_predict: Optional[int] = None,
+        timeout_s: Optional[float] = None,
+    ) -> Tuple[Optional[str], float, Optional[AIError]]:
+        """
+        Sends a bounded generation prompt to local Ollama.
+        Returns (raw_response_text, latency_ms, error).
+        """
+        target_model = (model or self.default_model).strip()
+        if not target_model:
+            return None, 0.0, AIError(
+                kind=AIErrorKind.MODEL_NOT_INSTALLED,
+                message="No AI model specified.",
+            )
+        if not prompt or not prompt.strip():
+            return None, 0.0, AIError(
+                kind=AIErrorKind.EMPTY_RESPONSE,
+                message="Prompt cannot be empty.",
+                model=target_model,
+            )
+
+        resp_data, latency_ms, error = self._send_generate_request(
+            prompt=prompt,
+            model=target_model,
+            temperature=temperature,
+            num_predict=num_predict,
+            timeout_s=timeout_s,
+        )
+        if error is not None:
+            return None, latency_ms, error
+
+        raw_output = resp_data.get("response", "") if resp_data else ""
+        return raw_output, latency_ms, None
+
     def generate_structured_label(
         self,
         prompt: str,
