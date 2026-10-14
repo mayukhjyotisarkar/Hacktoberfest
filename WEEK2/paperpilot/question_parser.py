@@ -9,7 +9,7 @@ references and unparsed segments for human verification.
 from dataclasses import dataclass
 import re
 import uuid
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 from paperpilot.pdf_extractor import ExtractedDocument, ExtractedPage
 
 
@@ -209,4 +209,29 @@ def parse_questions_from_document(doc: ExtractedDocument) -> ParseResult:
         unparsed_segments=unparsed_segments,
         total_parsed=len(questions),
     )
+
+
+def parse_questions(
+    doc_or_text: Union[ExtractedDocument, str],
+    source_file: str = "unknown.pdf",
+    subject: str = "General",
+    year: Optional[int] = None,
+) -> ParseResult:
+    """
+    Convenience wrapper that accepts either an ExtractedDocument or a raw text string,
+    delegating to parse_questions_from_document.
+    """
+    if isinstance(doc_or_text, ExtractedDocument):
+        return parse_questions_from_document(doc_or_text)
+
+    page = ExtractedPage(page_number=1, text=doc_or_text, char_count=len(doc_or_text))
+    doc = ExtractedDocument(
+        filename=source_file,
+        subject=subject,
+        year=year,
+        pages=[page],
+        total_pages=1,
+        total_chars=len(doc_or_text),
+    )
+    return parse_questions_from_document(doc)
 

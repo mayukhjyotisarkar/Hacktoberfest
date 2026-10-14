@@ -22,19 +22,25 @@ WEEK2/
 ├── .gitignore                      # Prevents committing caches, databases, and uploaded PDFs
 ├── requirements.txt                # Pinned dependencies
 ├── README.md                       # Documentation & setup instructions
+├── app.py                          # Streamlit interactive web application
 ├── demo_phase3.py                  # Phase 3 similarity and analytics demonstration
+├── verify_phase4.py                # Phase 4 end-to-end verification script
 ├── paperpilot/                     # Core Python package
 │   ├── __init__.py                 # Package declaration
 │   ├── pdf_extractor.py            # PDF text extraction and error handling
 │   ├── question_parser.py          # Question boundary detection and metadata extraction
 │   ├── text_normalizer.py          # CS token preservation & boilerplate stripping
 │   ├── similarity.py               # TF-IDF & representative-based clustering
-│   └── analytics.py                # Frequency counts & revision prioritization
-├── tests/                          # Automated Pytest suite
+│   ├── analytics.py                # Frequency counts & revision prioritization
+│   └── storage.py                  # SQLite ACID persistence engine
+├── tests/                          # Automated Pytest suite (43 passing tests)
 │   ├── test_pdf_extractor.py       # Extraction unit tests
 │   ├── test_question_parser.py     # Parser unit tests
 │   ├── test_similarity.py          # Similarity, token protection & clustering regression tests
-│   └── test_analytics.py           # Recurrence, metadata preservation & checklist tests
+│   ├── test_analytics.py           # Recurrence, metadata preservation & checklist tests
+│   ├── test_storage.py             # SQLite persistence, duplicate prevention & cascade tests
+│   ├── test_e2e_workflow.py        # End-to-end workflow simulation test
+│   └── test_streamlit_app.py       # Streamlit AppTest UI verification test
 └── data/                           # Test fixtures
     ├── generate_samples.py         # Synthetic question paper generator
     ├── sample_os_2022.pdf          # Operating Systems 2022 sample paper
@@ -50,10 +56,16 @@ WEEK2/
 pip install -r requirements.txt
 ```
 
-### 2. Run Tests
+### 2. Run Test Suite
 ```bash
 python -m pytest tests/ -v
 ```
+
+### 3. Launch PaperPilot Web App
+```bash
+streamlit run app.py
+```
+App will open locally at `http://localhost:8501`.
 
 ---
 

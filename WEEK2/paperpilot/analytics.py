@@ -160,6 +160,7 @@ def calculate_dataset_metrics(result: SimilarityAnalysisResult, questions: List[
         "distinct_papers": distinct_papers,
         "unique_topics": unique_clusters,
         "repeated_topics_count": repeated_clusters_count,
+        "repeated_clusters_count": repeated_clusters_count,
         "questions_in_repeated": questions_in_repeated,
         "repetition_rate_pct": round(repetition_rate, 1),
     }
