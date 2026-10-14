@@ -22,13 +22,19 @@ WEEK2/
 ├── .gitignore                      # Prevents committing caches, databases, and uploaded PDFs
 ├── requirements.txt                # Pinned dependencies
 ├── README.md                       # Documentation & setup instructions
+├── demo_phase3.py                  # Phase 3 similarity and analytics demonstration
 ├── paperpilot/                     # Core Python package
 │   ├── __init__.py                 # Package declaration
 │   ├── pdf_extractor.py            # PDF text extraction and error handling
-│   └── question_parser.py          # Question boundary detection and metadata extraction
+│   ├── question_parser.py          # Question boundary detection and metadata extraction
+│   ├── text_normalizer.py          # CS token preservation & boilerplate stripping
+│   ├── similarity.py               # TF-IDF & representative-based clustering
+│   └── analytics.py                # Frequency counts & revision prioritization
 ├── tests/                          # Automated Pytest suite
 │   ├── test_pdf_extractor.py       # Extraction unit tests
-│   └── test_question_parser.py     # Parser unit tests
+│   ├── test_question_parser.py     # Parser unit tests
+│   ├── test_similarity.py          # Similarity, token protection & clustering regression tests
+│   └── test_analytics.py           # Recurrence, metadata preservation & checklist tests
 └── data/                           # Test fixtures
     ├── generate_samples.py         # Synthetic question paper generator
     ├── sample_os_2022.pdf          # Operating Systems 2022 sample paper
@@ -52,3 +58,4 @@ python -m pytest tests/ -v
 ---
 
 *Local-First • Privacy-First • No Cloud AI APIs Required*
+
