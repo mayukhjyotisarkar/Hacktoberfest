@@ -8,14 +8,33 @@ __pycache__/
 venv/
 .venv/
 env/
+.test_venv*/
 
-# Data & database files
+# Data & database files (Local storage excluded from version control)
 *.db
 *.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
 data/*.pdf
 !data/sample_*.pdf
 !data/.gitkeep
 
-# Streamlit config / cache
+# Exported user CSVs & reports
+*.csv
+!data/*.csv
+
+# Logs & Environment variables
+*.log
+.env
+.env.*
+
+# Streamlit config & session cache
 .streamlit/
 
+# OS artifacts
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store

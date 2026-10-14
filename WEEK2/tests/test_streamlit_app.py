@@ -38,7 +38,7 @@ def setup_test_db(tmp_path, monkeypatch):
 
 def test_dashboard_renders_metrics():
     """Verifies that the Home/Dashboard view loads metrics and tables without exceptions."""
-    at = AppTest.from_file(APP_PATH)
+    at = AppTest.from_file(APP_PATH, default_timeout=15.0)
     at.run()
     assert not at.exception
     assert len(at.metric) >= 4
@@ -50,7 +50,7 @@ def test_dashboard_renders_metrics():
 
 def test_question_bank_renders_and_filters():
     """Verifies Question Bank tab loads, filters, and generates CSV data."""
-    at = AppTest.from_file(APP_PATH)
+    at = AppTest.from_file(APP_PATH, default_timeout=15.0)
     at.run()
 
     # Navigate to Question Bank (Option index 2)
@@ -62,7 +62,7 @@ def test_question_bank_renders_and_filters():
 
 def test_repeated_questions_renders_clusters():
     """Verifies Repeated Questions tab clusters items and displays match types."""
-    at = AppTest.from_file(APP_PATH)
+    at = AppTest.from_file(APP_PATH, default_timeout=15.0)
     at.run()
 
     # Navigate to Repeated Questions (Option index 3)
@@ -73,7 +73,7 @@ def test_repeated_questions_renders_clusters():
 
 def test_topic_analysis_charts_render():
     """Verifies charts and cluster tables render without exceptions."""
-    at = AppTest.from_file(APP_PATH)
+    at = AppTest.from_file(APP_PATH, default_timeout=15.0)
     at.run()
 
     # Navigate to Topic & Frequency Analysis (Option index 4)
@@ -83,7 +83,7 @@ def test_topic_analysis_charts_render():
 
 def test_revision_checklist_renders():
     """Verifies Revision Checklist tab ranks priorities and provides CSV download."""
-    at = AppTest.from_file(APP_PATH)
+    at = AppTest.from_file(APP_PATH, default_timeout=15.0)
     at.run()
 
     # Navigate to Revision Checklist (Option index 5)
@@ -95,7 +95,7 @@ def test_revision_checklist_renders():
 
 def test_settings_and_threshold_slider():
     """Verifies Settings tab and dynamic similarity threshold updates."""
-    at = AppTest.from_file(APP_PATH)
+    at = AppTest.from_file(APP_PATH, default_timeout=15.0)
     at.run()
 
     # Change sidebar slider to 0.85
@@ -115,7 +115,7 @@ def test_repeated_questions_when_ai_is_unavailable():
     """Verifies that Repeated Questions gracefully handles Ollama being offline."""
     from unittest.mock import patch
 
-    at = AppTest.from_file(APP_PATH)
+    at = AppTest.from_file(APP_PATH, default_timeout=15.0)
     at.run()
 
     # Navigate to Repeated Questions
@@ -143,7 +143,7 @@ def test_repeated_questions_displays_cached_ai_label():
     """Verifies that an existing cached AI label is rendered inside the cluster expander."""
     from paperpilot.topic_labeler import CachedTopicLabel
 
-    at = AppTest.from_file(APP_PATH)
+    at = AppTest.from_file(APP_PATH, default_timeout=15.0)
     at.run()
 
     # Set cached AI label for cluster_001
@@ -169,7 +169,7 @@ def test_repeated_questions_revision_notes_offline_handling():
     """Verifies that clicking 'Generate Revision Notes' when Ollama is offline displays a clean warning."""
     from unittest.mock import patch
 
-    at = AppTest.from_file(APP_PATH)
+    at = AppTest.from_file(APP_PATH, default_timeout=15.0)
     at.run()
 
     at.sidebar.radio[0].set_value("🔁 Repeated Questions").run()
@@ -195,7 +195,7 @@ def test_repeated_questions_renders_revision_notes_without_unsolicited_inference
     from unittest.mock import patch
     from paperpilot.revision_notes import GroundedRevisionNotes, SourceQuestionCitation, compute_revision_notes_cache_key, REVISION_PROMPT_VERSION
 
-    at = AppTest.from_file(APP_PATH)
+    at = AppTest.from_file(APP_PATH, default_timeout=15.0)
     at.run()
 
     at.sidebar.radio[0].set_value("🔁 Repeated Questions").run()

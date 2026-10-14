@@ -1,9 +1,29 @@
-# Core PaperPilot Dependencies
-pymupdf>=1.25.0
-streamlit>=1.40.0
-pandas>=2.0.0
-numpy>=1.24.0
-scikit-learn>=1.4.0
-pytest>=8.0.0
-requests>=2.31.0
+# =============================================================================
+# PaperPilot - Core & Optional AI Dependencies
+# Supported Python Versions: Python 3.10, 3.11, 3.12, 3.13, 3.14 (64-bit)
+# =============================================================================
 
+# 1. PDF Text & Metadata Extraction
+# PyMuPDF is a fast, C-backed PDF parser used for page-level text extraction
+pymupdf>=1.24.0,<2.0.0
+
+# 2. Interactive Web Dashboard
+# Streamlit powers the local web GUI running on http://localhost:8501
+streamlit>=1.35.0,<2.0.0
+
+# 3. Data Processing & Tabular Analysis
+# Powers question filtering, year summaries, and CSV exports
+pandas>=2.0.0,<4.0.0
+numpy>=1.24.0,<3.0.0
+
+# 4. Machine Learning & Similarity Engine
+# TF-IDF vectorization and Cosine Similarity for question clustering
+scikit-learn>=1.4.0,<2.0.0
+
+# 5. Local AI Client (Optional Local Ollama Interface)
+# Used exclusively for communication with local Ollama on loopback (localhost:11434)
+# Never sends data to remote cloud services
+requests>=2.31.0,<3.0.0
+
+# 6. Test Suite & Verification (Development & Quality Assurance)
+pytest>=8.0.0,<10.0.0
