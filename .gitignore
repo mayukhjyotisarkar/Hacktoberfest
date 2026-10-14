@@ -5,3 +5,15 @@ node_modules/
 .DS_Store
 *.log
 .env
+
+# Python bytecode & test cache
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+**/.pytest_cache/
+.venv/
+venv/
+*.db
+*.sqlite3

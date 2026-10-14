@@ -1,0 +1,21 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Data & database files
+*.db
+*.sqlite3
+data/*.pdf
+!data/sample_*.pdf
+!data/.gitkeep
+
+# Streamlit config / cache
+.streamlit/
+
