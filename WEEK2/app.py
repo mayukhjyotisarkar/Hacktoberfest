@@ -1,11 +1,14 @@
 """
-app.py - Streamlit Web Interface for PaperPilot.
+app.py - Student-Friendly Streamlit Web Interface for PaperPilot.
 
 Local-first, privacy-focused Previous Year Question Paper (PYQ) analyzer.
-Extracts questions from text PDFs, clusters recurring questions using TF-IDF
-and leader-clustering, calculates recurrence analytics, and creates revision checklists.
+Redesigned around a guided 3-step student study workflow:
+  1. Upload Papers (with 1-click sample paper onboarding)
+  2. Find Important Questions (readable recurrence cards & optional local AI)
+  3. My Revision Plan (priority-ranked study checklist & offline CSV export)
 """
 
+import os
 from pathlib import Path
 import re
 from typing import List, Optional
@@ -39,23 +42,73 @@ from paperpilot.revision_notes import (
 
 # Set Streamlit page layout and title
 st.set_page_config(
-    page_title="PaperPilot — Exam Paper Analyzer",
+    page_title="PaperPilot — Exam Revision Assistant",
     page_icon="✈️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
+# Custom styling for a clean, accessible, modern educational-product aesthetic
+st.markdown(
+    """
+    <style>
+    .stApp {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    .hero-banner {
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        padding: 20px 24px;
+        border-radius: 12px;
+        color: white;
+        margin-bottom: 20px;
+    }
+    .hero-banner h2 {
+        color: white !important;
+        margin: 0;
+        font-size: 1.6rem;
+        font-weight: 700;
+    }
+    .hero-banner p {
+        color: #e0e7ff !important;
+        margin: 4px 0 0 0;
+        font-size: 0.95rem;
+    }
+    .step-card {
+        background-color: #f8f9fa;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 16px;
+        margin-bottom: 16px;
+    }
+    .metric-pill {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin-right: 6px;
+    }
+    .badge-exact { background-color: #dcfce7; color: #166534; }
+    .badge-similar { background-color: #fef3c7; color: #92400e; }
+    .badge-high { background-color: #fee2e2; color: #991b1b; }
+    .badge-medium { background-color: #fef3c7; color: #92400e; }
+    .badge-standard { background-color: #f1f5f9; color: #334155; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # Initialize SQLite Storage
-DB_PATH = Path(__file__).resolve().parent / "paperpilot.db"
+DB_PATH = Path(os.environ.get("PAPERPILOT_DB_PATH", str(Path(__file__).resolve().parent / "paperpilot.db")))
 
 
 @st.cache_resource
-def get_storage() -> PaperPilotStorage:
-    """Returns a singleton instance of PaperPilotStorage."""
-    return PaperPilotStorage(db_path=DB_PATH)
+def get_storage(db_path_str: str) -> PaperPilotStorage:
+    """Returns a singleton instance of PaperPilotStorage for the given path."""
+    return PaperPilotStorage(db_path=Path(db_path_str))
 
 
-storage = get_storage()
+storage = get_storage(str(DB_PATH))
 
 # Initialize session state keys
 if "similarity_threshold" not in st.session_state:
@@ -127,43 +180,36 @@ def mark_data_dirty() -> None:
 # =============================================================================
 
 st.sidebar.markdown("## ✈️ PaperPilot")
-st.sidebar.caption("Local-First Exam Paper Analyzer")
+st.sidebar.caption("Student Exam Revision Assistant")
 st.sidebar.markdown("---")
+
+NAV_OPTIONS = [
+    "1. 📤 Upload Papers",
+    "2. 🎯 Find Important Questions",
+    "3. 📝 My Revision Plan",
+    "4. 📊 Question Bank & Analytics",
+    "5. ⚙️ Settings & Privacy",
+]
+
+if "nav_choice" not in st.session_state or st.session_state["nav_choice"] not in NAV_OPTIONS:
+    st.session_state["nav_choice"] = NAV_OPTIONS[0]
+
+
+def on_nav_change():
+    st.session_state["nav_choice"] = st.session_state["sidebar_nav"]
+
 
 nav_choice = st.sidebar.radio(
-    "Navigation",
-    options=[
-        "📊 Dashboard",
-        "📤 Upload & Review",
-        "📚 Question Bank",
-        "🔁 Repeated Questions",
-        "📈 Topic & Frequency Analysis",
-        "📝 Revision Checklist",
-        "⚙️ Settings & Privacy",
-    ],
-    index=0,
+    "Navigation Steps",
+    options=NAV_OPTIONS,
+    index=NAV_OPTIONS.index(st.session_state["nav_choice"]),
+    key="sidebar_nav",
+    on_change=on_nav_change,
 )
 
 st.sidebar.markdown("---")
 
-# Global threshold quick-slider in sidebar
-st.sidebar.markdown("### 🎚️ Similarity Threshold")
-new_threshold = st.sidebar.slider(
-    "Cosine Similarity Threshold",
-    min_value=0.40,
-    max_value=0.95,
-    value=float(st.session_state["similarity_threshold"]),
-    step=0.05,
-    help="Higher values require closer word matching. Lower values cluster broader topic variants.",
-)
-if new_threshold != st.session_state["similarity_threshold"]:
-    st.session_state["similarity_threshold"] = new_threshold
-    mark_data_dirty()
-    st.sidebar.info(f"Threshold set to {new_threshold:.2f}. Recalculating...")
-    st.rerun()
-
-st.sidebar.markdown("---")
-# Quick database counters
+# Quick database summary in sidebar
 db_stats = storage.get_stats()
 st.sidebar.markdown(f"**Stored Papers:** `{db_stats['total_papers']}`")
 st.sidebar.markdown(f"**Active Questions:** `{db_stats['active_questions']}`")
@@ -172,441 +218,338 @@ if db_stats["excluded_questions"] > 0:
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("🔒 **100% Offline & Private**")
-st.sidebar.caption("All PDFs, questions, and similarity computations run locally. No external APIs used.")
+st.sidebar.caption("All PDFs, questions, and similarity computations run locally. No cloud APIs or tracking.")
 
 
 # =============================================================================
-# 1. DASHBOARD
+# TOP HEADER & GUIDED 3-STEP PROGRESS BAR
 # =============================================================================
-if nav_choice == "📊 Dashboard":
-    st.title("📊 PaperPilot Dashboard")
+
+all_active_questions = storage.get_questions(include_excluded=False)
+stored_papers = storage.get_papers()
+total_q_count = len(all_active_questions)
+total_papers_count = len(stored_papers)
+
+current_analysis = get_current_analysis()
+repeated_cluster_count = len(current_analysis.repeated_clusters)
+
+# Persistent Hero Banner
+st.markdown(
+    """
+    <div class="hero-banner">
+        <h2>✈️ PaperPilot</h2>
+        <p>Turn previous year university question papers into a focused, priority-ranked exam revision plan.</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Guided Step Progress Indicator
+c_s1, c_s2, c_s3 = st.columns(3)
+with c_s1:
+    s1_badge = "✅" if total_q_count > 0 else "1️⃣"
+    s1_sub = f"{total_papers_count} Papers ({total_q_count} Questions)" if total_q_count > 0 else "Upload PDF question papers"
+    st.markdown(f"**{s1_badge} Step 1: Upload Papers**")
+    st.caption(s1_sub)
+
+with c_s2:
+    s2_badge = "✅" if repeated_cluster_count > 0 else ("2️⃣" if total_q_count > 0 else "⚪")
+    s2_sub = f"{repeated_cluster_count} Recurring Question Groups" if repeated_cluster_count > 0 else ("No repeats at current threshold" if total_q_count > 0 else "Discover recurring topics")
+    st.markdown(f"**{s2_badge} Step 2: Important Questions**")
+    st.caption(s2_sub)
+
+with c_s3:
+    s3_badge = "3️⃣" if total_q_count > 0 else "⚪"
+    s3_sub = "Priority-ranked study plan" if total_q_count > 0 else "Generate study checklist"
+    st.markdown(f"**{s3_badge} Step 3: My Revision Plan**")
+    st.caption(s3_sub)
+
+st.markdown("---")
+
+
+# =============================================================================
+# STEP 1: UPLOAD PAPERS & ONBOARDING
+# =============================================================================
+if nav_choice == "1. 📤 Upload Papers":
+    st.title("📤 Step 1: Upload Question Papers")
     st.write(
-        "Welcome to **PaperPilot**! An offline, privacy-first analyzer for previous-year exam papers. "
-        "Upload your text-based PDF question papers to discover recurring topics, examine question frequency, "
-        "and generate a targeted study checklist."
+        "Upload your past university question papers in text-based PDF format. "
+        "PaperPilot will automatically extract individual questions while preserving numbers, marks, and examination years."
     )
 
-    questions = storage.get_questions(include_excluded=False)
-    papers = storage.get_papers()
+    # High-level Metrics (Visible whenever papers are loaded)
+    if total_q_count > 0:
+        metrics = calculate_dataset_metrics(current_analysis, all_active_questions)
+        col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+        col_m1.metric("Exam Papers", total_papers_count)
+        col_m2.metric("Questions Extracted", total_q_count)
+        col_m3.metric("Repeated Question Groups", repeated_cluster_count)
+        col_m4.metric("Repetition Rate", f"{metrics['repetition_rate_pct']}%")
 
-    if not questions or not papers:
-        st.info(
-            "👋 **No exam papers analyzed yet!**\n\n"
-            "Get started in 3 easy steps:\n"
-            "1. Navigate to **Upload & Review** in the sidebar.\n"
-            "2. Upload your course question paper PDFs (or test with the sample papers in `data/`).\n"
-            "3. Review the extracted questions and return here for instant analytics!"
-        )
+        col_next, _ = st.columns([1, 2])
+        with col_next:
+            if st.button("Proceed to Step 2: Find Important Questions ➔", type="primary", key="btn_to_step2_top"):
+                st.session_state["nav_choice"] = "2. 🎯 Find Important Questions"
+                st.rerun()
+        st.markdown("---")
 
-        col_demo1, col_demo2 = st.columns(2)
-        with col_demo1:
-            st.markdown("### 📁 Synthetic Test Papers Available")
-            st.markdown(
-                "You can test immediately using the included synthetic Operating Systems papers:\n"
-                "- `data/sample_os_2022.pdf` (Year 2022)\n"
-                "- `data/sample_os_2023.pdf` (Year 2023)"
-            )
-        with col_demo2:
-            st.markdown("### 🔒 Privacy Guarantee")
-            st.markdown(
-                "- **Zero Cloud APIs:** No OpenAI, Claude, or third-party connections.\n"
-                "- **Local Storage:** All questions are stored in a local SQLite file (`paperpilot.db`).\n"
-                "- **Deterministic ML:** Powered by TF-IDF & Cosine Similarity via Scikit-Learn."
-            )
-    else:
-        analysis = get_current_analysis()
-        metrics = calculate_dataset_metrics(analysis, questions)
+    # Welcome state for first-time students (Zero papers uploaded)
+    if total_q_count == 0:
+        st.info("👋 **Welcome to PaperPilot!** You have not uploaded any exam papers yet. Choose an option below to get started:")
 
-        # 4 High-Level Metric Cards
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Exam Papers", metrics["distinct_papers"])
-        col2.metric("Questions Extracted", metrics["total_questions"])
-        col3.metric("Repeated Question Groups", metrics["repeated_clusters_count"])
-        col4.metric("Repetition Rate", f"{metrics['repetition_rate_pct']:.1f}%")
+        col_opt_upload, col_opt_sample = st.columns(2)
+        with col_opt_upload:
+            st.markdown("### 📥 Option A: Upload Your Own Papers")
+            st.write("Drag and drop PDF examination papers from your university using the upload box below.")
+
+        with col_opt_sample:
+            st.markdown("### 🧪 Option B: Instant Sample Test")
+            st.write("No PDFs handy? Try PaperPilot right now using 2 included Operating Systems papers (2022 & 2023).")
+            if st.button("🚀 Load Sample Papers (2022 & 2023 OS)", type="secondary", key="btn_load_samples"):
+                p22 = Path(__file__).resolve().parent / "data" / "sample_os_2022.pdf"
+                p23 = Path(__file__).resolve().parent / "data" / "sample_os_2023.pdf"
+                if not p22.exists() or not p23.exists():
+                    from data.generate_samples import create_os_2022_pdf, create_os_2023_pdf
+                    create_os_2022_pdf()
+                    create_os_2023_pdf()
+
+                doc22 = extract_text_from_pdf(p22.read_bytes(), filename="sample_os_2022.pdf", subject="Operating Systems", year=2022)
+                doc23 = extract_text_from_pdf(p23.read_bytes(), filename="sample_os_2023.pdf", subject="Operating Systems", year=2023)
+                q22 = parse_questions(doc22)
+                q23 = parse_questions(doc23)
+
+                storage.save_paper("sample_os_2022.pdf", "Operating Systems", 2022, q22.questions, overwrite=True)
+                storage.save_paper("sample_os_2023.pdf", "Operating Systems", 2023, q23.questions, overwrite=True)
+                mark_data_dirty()
+                st.success("✅ Successfully loaded sample papers (Operating Systems 2022 & 2023) with 14 questions!")
+                st.rerun()
 
         st.markdown("---")
 
-        # Papers Table & Quick Repeated Snippet
-        col_left, col_right = st.columns([1, 1])
+    # Upload Container
+    st.subheader("Add Question Papers")
+    col_u1, col_u2 = st.columns([1, 1])
+    with col_u1:
+        default_subject = st.text_input("Course / Subject Name", value="Operating Systems", help="e.g. Operating Systems, Data Structures, Computer Networks")
+    with col_u2:
+        year_input = st.text_input("Default Exam Year (Optional)", placeholder="e.g. 2023", help="Auto-detected from filename if omitted")
+        default_year: Optional[int] = None
+        if year_input.strip():
+            try:
+                default_year = int(year_input.strip())
+            except ValueError:
+                st.warning("Year must be a valid 4-digit number (e.g. 2023).")
 
-        with col_left:
-            st.subheader("📑 Uploaded Papers")
-            papers_df = get_papers_summary_df(questions)
-            st.dataframe(papers_df, width="stretch", hide_index=True)
-
-        with col_right:
-            st.subheader("🔁 Top Repeated Questions")
-            if analysis.repeated_clusters:
-                rep_df = get_repeated_clusters_df(analysis)
-                st.dataframe(
-                    rep_df[["Representative Question", "Distinct Papers", "Total Occurrences", "Exam Years"]].head(5),
-                    width="stretch",
-                    hide_index=True,
-                )
-            else:
-                st.write("No questions met the repetition threshold yet. Try lowering the threshold in the sidebar.")
-
-        # Re-analysis Notice if dirty
-        if st.session_state.get("cache_dirty", False):
-            st.warning("⚠️ Questions have been edited. Results will refresh on your next view.")
-
-
-# =============================================================================
-# 2. UPLOAD & REVIEW
-# =============================================================================
-elif nav_choice == "📤 Upload & Review":
-    st.title("📤 Upload & Review Exam Papers")
-    st.write(
-        "Upload text-based PDF question papers, assign course metadata, and review "
-        "the extracted questions to ensure clean data before similarity clustering."
+    uploaded_files = st.file_uploader(
+        "Select Text-based PDF Question Papers",
+        type=["pdf"],
+        accept_multiple_files=True,
+        help="Upload PDF question papers. Note: scanned image PDFs require OCR which is outside this MVP.",
     )
 
-    tab_upload, tab_review, tab_manage = st.tabs(["1. Upload PDFs", "2. Review & Edit Questions", "3. Manage Papers"])
-
-    # --- SUB-TAB 1: UPLOAD ---
-    with tab_upload:
-        st.subheader("Upload PDF Question Papers")
-
-        col_meta1, col_meta2 = st.columns(2)
-        with col_meta1:
-            default_subject = st.text_input("Course / Subject Name", value="Operating Systems")
-        with col_meta2:
-            default_year_str = st.text_input("Default Exam Year (Optional, e.g. 2023)", value="")
-
-        default_year: Optional[int] = None
-        if default_year_str.strip().isdigit():
-            default_year = int(default_year_str.strip())
-
-        uploaded_files = st.file_uploader(
-            "Select Text-based PDF Question Papers",
-            type=["pdf"],
-            accept_multiple_files=True,
-            help="Upload PDF question papers. Note: scanned image PDFs require OCR which is outside the MVP.",
-        )
-
+    col_chk, col_btn = st.columns([2, 1])
+    with col_chk:
         overwrite_existing = st.checkbox(
             "Overwrite paper if already uploaded with the same filename",
             value=True,
-            help="If checked, re-uploading a file with the same name replaces its questions with the freshly extracted set.",
+            help="If checked, re-uploading a file replaces its questions with the freshly extracted set.",
         )
+    with col_btn:
+        extract_clicked = st.button("🚀 Extract & Store Questions", type="primary")
 
-        if uploaded_files:
-            if st.button("🚀 Extract & Store Questions", type="primary"):
-                total_extracted = 0
-                papers_processed = 0
+    if uploaded_files and extract_clicked:
+        total_extracted = 0
+        papers_processed = 0
 
-                for uploaded_file in uploaded_files:
-                    file_bytes = uploaded_file.read()
-                    filename = uploaded_file.name
+        for uploaded_file in uploaded_files:
+            file_bytes = uploaded_file.read()
+            filename = uploaded_file.name
 
-                    # Attempt to extract year from filename if not explicitly provided (e.g. sample_os_2022.pdf)
-                    paper_year = default_year
-                    if paper_year is None:
-                        year_match = re.search(r"\b(19\d{2}|20\d{2})\b", filename)
-                        if year_match:
-                            paper_year = int(year_match.group(0))
+            paper_year = default_year
+            if paper_year is None:
+                year_match = re.search(r"\b(19\d{2}|20\d{2})\b", filename)
+                if year_match:
+                    paper_year = int(year_match.group(0))
 
-                    try:
-                        extracted_doc = extract_text_from_pdf(
-                            file_bytes,
-                            filename=filename,
-                            subject=default_subject,
-                            year=paper_year,
-                        )
-
-                        # Check if document is scanned image
-                        if extracted_doc.is_scanned:
-                            st.warning(
-                                f"⚠️ **Scanned PDF Detected in `{filename}`!**\n\n"
-                                f"This file contains image-only pages with no selectable text. "
-                                f"Scanned PDFs require an Optical Character Recognition (OCR) engine, "
-                                f"which is not part of this offline MVP. Please upload text-based PDFs."
-                            )
-                            continue
-
-                        # Parse questions with page tracking preserved
-                        parse_res = parse_questions(extracted_doc)
-
-                        # Save to SQLite database
-                        saved = storage.save_paper(
-                            filename=filename,
-                            subject=default_subject,
-                            year=paper_year,
-                            questions=parse_res.questions,
-                            overwrite=overwrite_existing,
-                        )
-
-                        if saved:
-                            st.success(
-                                f"✅ Successfully processed `{filename}`: "
-                                f"**{len(parse_res.questions)}** questions extracted "
-                                f"(Year: {paper_year if paper_year else 'Unknown'})."
-                            )
-                            total_extracted += len(parse_res.questions)
-                            papers_processed += 1
-                        else:
-                            st.info(f"Skipped `{filename}` because it already exists and overwrite was unchecked.")
-
-                        # Show unparsed warnings if any headers were dropped
-                        if parse_res.unparsed_segments:
-                            with st.expander(f"ℹ️ Unparsed Headers/Instructions in `{filename}` ({len(parse_res.unparsed_segments)})"):
-                                for seg in parse_res.unparsed_segments[:5]:
-                                    st.caption(f"• {seg}")
-
-                    except PDFExtractionError as e:
-                        st.error(f"Failed to read `{filename}`: {e}")
-                    except StorageError as e:
-                        st.error(f"Database error while saving `{filename}`: {e}")
-
-                if papers_processed > 0:
-                    mark_data_dirty()
-                    st.balloons()
-                    st.info("Head to the **'Review & Edit Questions'** tab to inspect and correct extracted items!")
-
-    # --- SUB-TAB 2: REVIEW & EDIT ---
-    with tab_review:
-        st.subheader("Review Extracted Questions")
-        st.write(
-            "Review parsed questions. You can fix typos, adjust question numbers, "
-            "or exclude non-question lines before running similarity analysis."
-        )
-
-        stored_papers = storage.get_papers()
-        if not stored_papers:
-            st.info("No papers available to review. Upload a PDF first.")
-        else:
-            paper_options = ["All Papers"] + [p["filename"] for p in stored_papers]
-            selected_paper = st.selectbox(
-                "Filter questions by paper:",
-                options=paper_options,
-                key="review_paper_select",
-            )
-
-            filter_filename = None if selected_paper == "All Papers" else selected_paper
-            review_questions = storage.get_questions(
-                source_file=filter_filename,
-                include_excluded=True,
-            )
-
-            if not review_questions:
-                st.write("No questions found for the selected filter.")
-            else:
-                # Prepare data for st.data_editor
-                editor_data = []
-                for q in review_questions:
-                    editor_data.append({
-                        "ID": q.id,
-                        "Paper": q.source_file,
-                        "Page": q.source_page,
-                        "No": q.question_number,
-                        "Question Text": q.text,
-                        "Marks": q.marks or "",
-                        "Year": str(q.year) if q.year is not None else "Unknown",
-                    })
-
-                review_df = pd.DataFrame(editor_data)
-
-                st.markdown(
-                    "💡 **Tip:** Edit question text or numbering directly in the table below, "
-                    "then click **Save Corrections to Database**."
+            try:
+                extracted_doc = extract_text_from_pdf(
+                    file_bytes,
+                    filename=filename,
+                    subject=default_subject,
+                    year=paper_year,
                 )
 
-                edited_df = st.data_editor(
-                    review_df,
-                    key="review_editor",
-                    disabled=["ID", "Paper", "Page"],
-                    width="stretch",
-                    num_rows="fixed",
-                    column_config={
-                        "ID": st.column_config.TextColumn("ID", width="small"),
-                        "Question Text": st.column_config.TextColumn("Question Text", width="large"),
-                        "No": st.column_config.TextColumn("No", width="small"),
-                        "Marks": st.column_config.TextColumn("Marks", width="small"),
-                        "Year": st.column_config.TextColumn("Year", width="small"),
-                    },
-                )
-
-                col_save, col_exclude = st.columns([1, 1])
-
-                with col_save:
-                    if st.button("💾 Save Corrections to Database", type="primary"):
-                        updates_count = 0
-                        for _, row in edited_df.iterrows():
-                            qid = row["ID"]
-                            new_text = str(row["Question Text"]).strip()
-                            new_num = str(row["No"]).strip()
-                            new_marks = str(row["Marks"]).strip() or None
-                            new_year = int(row["Year"]) if str(row["Year"]).isdigit() else None
-
-                            storage.update_question(
-                                question_id=qid,
-                                text=new_text,
-                                question_number=new_num,
-                                marks=new_marks,
-                                year=new_year,
-                            )
-                            updates_count += 1
-
-                        mark_data_dirty()
-                        st.success(f"Successfully saved changes for {updates_count} questions!")
-                        st.rerun()
-
-                with col_exclude:
-                    # Individual question exclusion / deletion tool
-                    with st.expander("🗑️ Exclude or Delete a Specific Question"):
-                        del_q_options = {f"[{q.source_file} p.{q.source_page}] {q.question_number} {q.text[:60]}...": q.id for q in review_questions}
-                        selected_del_label = st.selectbox("Select question to exclude/delete:", list(del_q_options.keys()))
-                        if selected_del_label:
-                            target_qid = del_q_options[selected_del_label]
-                            col_ex, col_del = st.columns(2)
-                            with col_ex:
-                                if st.button("🚫 Exclude from Analysis"):
-                                    storage.update_question(target_qid, is_excluded=True)
-                                    mark_data_dirty()
-                                    st.warning("Question excluded from future similarity clustering.")
-                                    st.rerun()
-                            with col_del:
-                                if st.button("❌ Delete Permanently"):
-                                    storage.delete_question(target_qid)
-                                    mark_data_dirty()
-                                    st.error("Question permanently deleted.")
-                                    st.rerun()
-
-    # --- SUB-TAB 3: MANAGE PAPERS ---
-    with tab_manage:
-        st.subheader("Manage Stored Papers")
-        stored_papers = storage.get_papers()
-
-        if not stored_papers:
-            st.write("No papers stored yet.")
-        else:
-            for p in stored_papers:
-                col_p1, col_p2, col_p3 = st.columns([3, 1, 1])
-                with col_p1:
-                    st.markdown(
-                        f"**{p['filename']}** — Subject: *{p['subject']}* | "
-                        f"Year: *{p['year'] if p['year'] else 'N/A'}* | "
-                        f"Questions: `{p['question_count']}`"
+                if extracted_doc.is_scanned:
+                    st.warning(
+                        f"⚠️ **Scanned PDF Detected in `{filename}`!**\n\n"
+                        f"This file contains image-only pages without selectable text. "
+                        f"Scanned photocopies require OCR, which is not yet supported. Please upload text-based PDFs."
                     )
-                with col_p2:
-                    st.caption(f"Uploaded: {p['uploaded_at'][:10]}")
-                with col_p3:
-                    if st.button("🗑️ Delete Paper", key=f"del_{p['filename']}"):
-                        storage.delete_paper(p["filename"])
-                        mark_data_dirty()
-                        st.success(f"Deleted `{p['filename']}` and its questions.")
-                        st.rerun()
+                    continue
+
+                parse_res = parse_questions(extracted_doc)
+
+                saved = storage.save_paper(
+                    filename=filename,
+                    subject=default_subject,
+                    year=paper_year,
+                    questions=parse_res.questions,
+                    overwrite=overwrite_existing,
+                )
+
+                if saved:
+                    st.success(
+                        f"✅ Successfully processed `{filename}`: "
+                        f"**{len(parse_res.questions)}** questions extracted "
+                        f"(Year: {paper_year if paper_year else 'Unknown'})."
+                    )
+                    total_extracted += len(parse_res.questions)
+                    papers_processed += 1
+                else:
+                    st.info(f"Skipped `{filename}` because it already exists and overwrite was unchecked.")
+
+                if parse_res.unparsed_segments:
+                    with st.expander(f"ℹ️ Unparsed Headers/Instructions in `{filename}` ({len(parse_res.unparsed_segments)})"):
+                        for seg in parse_res.unparsed_segments[:5]:
+                            st.caption(f"• {seg}")
+
+            except PDFExtractionError as e:
+                st.error(f"Failed to read `{filename}`: {e}")
+            except StorageError as e:
+                st.error(f"Database error while saving `{filename}`: {e}")
+
+        if papers_processed > 0:
+            mark_data_dirty()
+            st.rerun()
+
+    # Expandable Review Drawer (Keep review accessible without cluttering)
+    if total_q_count > 0:
+        st.markdown("---")
+        with st.expander(f"📑 Review & Edit Extracted Questions ({total_q_count} Total)", expanded=False):
+            st.write("Review, edit question text, fix marks, or exclude instructions from similarity clustering.")
+            all_raw_questions = storage.get_questions(include_excluded=True)
+
+            paper_options = ["All Papers"] + [p["filename"] for p in storage.get_papers()]
+            selected_paper = st.selectbox("Filter by Question Paper", options=paper_options, key="select_review_paper")
+
+            filtered_for_review = [
+                q for q in all_raw_questions
+                if selected_paper == "All Papers" or q.source_file == selected_paper
+            ]
+
+            st.caption(f"Showing {len(filtered_for_review)} questions for `{selected_paper}`")
+
+            active_q_ids = {q.id for q in all_active_questions}
+            # Display table
+            review_table_data = []
+            for q in filtered_for_review:
+                review_table_data.append({
+                    "ID": q.id,
+                    "Paper": q.source_file,
+                    "Page": q.source_page,
+                    "Q#": q.question_number,
+                    "Question Text": q.text,
+                    "Year": q.year if q.year is not None else "N/A",
+                    "Marks": q.marks or "N/A",
+                    "Status": "❌ Excluded" if q.id not in active_q_ids else "✅ Active",
+                })
+            st.dataframe(pd.DataFrame(review_table_data), use_container_width=True, hide_index=True)
+
+            # Edit Single Question Sub-form
+            st.markdown("#### ✏️ Edit or Exclude a Question")
+            q_ids = [q.id for q in filtered_for_review]
+            if q_ids:
+                selected_qid = st.selectbox("Select Question to Edit", options=q_ids, format_func=lambda x: f"[{x}] {next(q.text[:60] for q in filtered_for_review if q.id == x)}...")
+                target_q = next(q for q in filtered_for_review if q.id == selected_qid)
+
+                col_e1, col_e2 = st.columns([3, 1])
+                with col_e1:
+                    updated_text = st.text_area("Question Text", value=target_q.text, height=80)
+                with col_e2:
+                    updated_qnum = st.text_input("Question Number", value=target_q.question_number)
+                    updated_marks = st.text_input("Marks", value=target_q.marks or "")
+                    updated_excluded = st.checkbox("Exclude from Analysis", value=(target_q.id not in active_q_ids))
+
+                if st.button("💾 Save Question Edits"):
+                    storage.update_question(
+                        question_id=target_q.id,
+                        text=updated_text,
+                        question_number=updated_qnum,
+                        marks=updated_marks,
+                        is_excluded=updated_excluded,
+                    )
+                    mark_data_dirty()
+                    st.success("Question updated successfully!")
+                    st.rerun()
+
+            # Delete entire paper option
+            if selected_paper != "All Papers":
+                st.markdown("---")
+                if st.button(f"🗑️ Delete `{selected_paper}` and its questions", type="secondary"):
+                    storage.delete_paper(selected_paper)
+                    mark_data_dirty()
+                    st.success(f"Deleted `{selected_paper}` from database.")
+                    st.rerun()
+
+        # Bottom Call-To-Action
+        col_next_bot, _ = st.columns([1, 2])
+        with col_next_bot:
+            if st.button("Proceed to Step 2: Find Important Questions ➔", type="primary", key="btn_to_step2_bot"):
+                st.session_state["nav_choice"] = "2. 🎯 Find Important Questions"
+                st.rerun()
 
 
 # =============================================================================
-# 3. QUESTION BANK
+# STEP 2: FIND IMPORTANT QUESTIONS
 # =============================================================================
-elif nav_choice == "📚 Question Bank":
-    st.title("📚 Searchable Question Bank")
-    st.write("Browse, search, and filter all reviewed questions across examination years.")
-
-    questions = storage.get_questions(include_excluded=False)
-
-    if not questions:
-        st.info("The Question Bank is empty. Please upload exam papers in the **Upload & Review** section.")
-    else:
-        # Search & Filter Controls
-        col_s1, col_s2, col_s3 = st.columns([2, 1, 1])
-        with col_s1:
-            search_query = st.text_input("🔍 Search question text (case-insensitive)", placeholder="e.g. deadlock, scheduling, page fault")
-        with col_s2:
-            subjects = ["All Subjects"] + sorted(list(set(q.subject for q in questions)))
-            sel_subject = st.selectbox("Subject", subjects)
-        with col_s3:
-            years = ["All Years"] + sorted(list(set(str(q.year) for q in questions if q.year is not None)))
-            sel_year = st.selectbox("Year", years)
-
-        # Apply Filters
-        filtered_q = questions
-        if search_query.strip():
-            q_lower = search_query.strip().lower()
-            filtered_q = [q for q in filtered_q if q_lower in q.text.lower()]
-        if sel_subject != "All Subjects":
-            filtered_q = [q for q in filtered_q if q.subject == sel_subject]
-        if sel_year != "All Years":
-            filtered_q = [q for q in filtered_q if str(q.year) == sel_year]
-
-        st.markdown(f"**Showing {len(filtered_q)} of {len(questions)} total questions**")
-
-        q_df = get_all_questions_df(filtered_q)
-        st.dataframe(q_df, width="stretch", hide_index=True)
-
-        # CSV Download Button
-        csv_data = q_df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="📥 Download Question Bank (CSV)",
-            data=csv_data,
-            file_name="paperpilot_question_bank.csv",
-            mime="text/csv",
-        )
-
-
-# =============================================================================
-# 4. REPEATED QUESTIONS
-# =============================================================================
-elif nav_choice == "🔁 Repeated Questions":
-    st.title("🔁 Repeated & Similar Questions")
+elif nav_choice == "2. 🎯 Find Important Questions":
+    st.title("🎯 Step 2: Important & Recurring Questions")
     st.write(
-        "Identifies exact and semantically similar questions using **TF-IDF + Cosine Similarity** "
-        "and **Representative-Based (Leader) Clustering**. "
-        "Questions are matched against a cluster anchor to avoid false chain-merging."
+        "These questions appeared across multiple examination papers or years. "
+        "Questions asking about the same core concepts are grouped together so you can focus on high-yield exam topics."
     )
 
-    questions = storage.get_questions(include_excluded=False)
-
-    if not questions:
-        st.info("No questions to analyze. Upload papers in **Upload & Review**.")
+    if total_q_count == 0:
+        st.warning("⚠️ No questions found. Please complete **Step 1: Upload Papers** first.")
+        if st.button("Go to Step 1: Upload Papers ➔", type="primary"):
+            st.session_state["nav_choice"] = "1. 📤 Upload Papers"
+            st.rerun()
     else:
         current_threshold = st.session_state["similarity_threshold"]
         analysis = get_current_analysis()
 
-        # Explanation Alert for Students
-        with st.expander("ℹ️ How Clustering Works & Metric Definitions"):
-            st.markdown(
-                """
-                - **Leader / Representative-Based Clustering:** Questions are anchored to the most comprehensive question. 
-                  Every candidate must meet the similarity threshold against that specific leader, preventing transitive chaining 
-                  (where A matches B and B matches C, but A and C are unrelated).
-                - **Total Occurrences:** Total times this question was asked across all papers.
-                - **Distinct Papers:** How many separate exam question papers featured this question.
-                - **Individual Similarity Score:** Every member's exact cosine similarity against the representative anchor.
-                """
-            )
+        # Student-Friendly Summary Bar
+        col_sm1, col_sm2, col_sm3 = st.columns(3)
+        col_sm1.metric("Recurring Question Groups", len(analysis.repeated_clusters))
+        col_sm2.metric("Past Papers Analyzed", total_papers_count)
+        rep_rate = round((sum(c.occurrence_count for c in analysis.repeated_clusters) / total_q_count * 100), 1) if total_q_count > 0 else 0.0
+        col_sm3.metric("Repetition Rate", f"{rep_rate}%")
 
-        st.markdown(
-            f"**Current Threshold:** `{current_threshold:.2f}` | "
-            f"**Repeated Clusters Found:** `{len(analysis.repeated_clusters)}` | "
-            f"**Questions Involved:** `{sum(c.occurrence_count for c in analysis.repeated_clusters)}`"
-        )
+        st.markdown("---")
 
         if not analysis.repeated_clusters:
-            st.warning(
-                f"No questions met the similarity threshold of `{current_threshold:.2f}`. "
-                f"Try lowering the threshold in the sidebar slider (e.g. to 0.50 or 0.60)."
+            st.info(
+                f"ℹ️ **No recurring questions found at similarity threshold `{current_threshold:.2f}`.**\n\n"
+                f"Try slightly lowering the threshold slider in **Settings & Privacy** (e.g. to `0.55`) to cluster broader topic variants."
             )
         else:
-            # Explicit AI Topic Labeling Controls
+            # AI Topic Labeling Controls
             col_ai_btn, col_ai_info = st.columns([1, 2])
             with col_ai_btn:
-                gen_ai_clicked = st.button("🏷️ Generate AI Topic Labels", help="Generates concise topic labels using local Ollama (qwen2.5-coder:1.5b-base)")
+                gen_ai_clicked = st.button("🏷️ Label All Topics with Local AI", help="Uses local Ollama (qwen2.5-coder:1.5b-base) to generate concise topic tags")
             with col_ai_info:
                 has_ai_labels = bool(st.session_state.get("ai_cluster_labels"))
                 if has_ai_labels:
-                    st.caption("✅ AI topic labels loaded (cached in memory).")
+                    st.caption("✅ AI topic labels loaded in memory.")
                 else:
                     st.caption("ℹ️ Optional: Click to label clusters with local AI (requires Ollama).")
 
             if gen_ai_clicked:
                 ai_client = LocalAIClient()
                 if not ai_client.check_health():
-                    st.warning("⚠️ Local Ollama service is not running or unreachable at http://localhost:11434. Deterministic clustering remains fully functional.")
+                    st.warning("⚠️ Local Ollama service is not running or unreachable at http://localhost:11434. Existing questions and analysis remain fully functional.")
                 elif not ai_client.is_model_available():
-                    st.warning(f"⚠️ Configured model '{ai_client.default_model}' is not installed in local Ollama. Deterministic clustering remains fully functional.")
+                    st.warning(f"⚠️ Configured model '{ai_client.default_model}' is not installed in local Ollama. Existing questions and analysis remain fully functional.")
                 else:
                     labeler = ClusterTopicLabeler(ai_client=ai_client)
                     labeled_count = 0
@@ -620,14 +563,15 @@ elif nav_choice == "🔁 Repeated Questions":
                             st.session_state["ai_cluster_errors"][cluster.cluster_id] = err.message
                             error_count += 1
                     if labeled_count > 0:
-                        st.success(f"Generated AI topic labels for {labeled_count} repeated question clusters!")
+                        st.success(f"Generated AI topic labels for {labeled_count} repeated question groups!")
                     elif error_count > 0:
                         st.warning("AI labeling encountered errors. Existing clusters remain unchanged.")
                     st.rerun()
 
-            for cluster in analysis.repeated_clusters:
+            # Render Question Cards
+            for idx, cluster in enumerate(analysis.repeated_clusters, 1):
                 years_badge = ", ".join(str(y) for y in cluster.years) if cluster.years else "N/A"
-                match_badge = "Exact Duplicate" if cluster.is_exact else f"Similar (~{int(cluster.avg_similarity * 100)}%)"
+                match_badge = "Exact Match" if cluster.is_exact else f"Similar (~{int(cluster.avg_similarity * 100)}%)"
 
                 ai_label = st.session_state.get("ai_cluster_labels", {}).get(cluster.cluster_id)
                 if ai_label:
@@ -643,11 +587,11 @@ elif nav_choice == "🔁 Repeated Questions":
                     if ai_label.cache_key != expected_key:
                         ai_label = None
 
-                expander_title_prefix = f"🏷️ [{ai_label.topic}] " if ai_label else ""
+                title_prefix = f"🏷️ [{ai_label.topic}] " if ai_label else ""
 
                 with st.expander(
-                    f"📌 [{cluster.cluster_id.upper()}] {expander_title_prefix}{cluster.representative_text[:70]}... "
-                    f"({cluster.paper_count} Papers, {cluster.occurrence_count} Occurrences)",
+                    f"📌 #{idx}: {title_prefix}\"{cluster.representative_text[:70]}...\" "
+                    f"({cluster.paper_count} Papers, {cluster.occurrence_count} Times Asked)",
                     expanded=True,
                 ):
                     col_m1, col_m2, col_m3, col_m4 = st.columns(4)
@@ -747,22 +691,31 @@ elif nav_choice == "🔁 Repeated Questions":
                         st.caption(f"⚠️ *Revision notes unavailable: {rev_err_msg}*")
                         st.markdown("---")
 
-                    st.markdown("**Representative Anchor Question:**")
+                    st.markdown("**Representative Question:**")
                     st.info(f"**\"{cluster.representative_text}\"**")
 
-                    st.markdown("**Member Questions & Individual Similarity to Anchor:**")
-                    for member in cluster.questions:
-                        sim_score = cluster.similarity_to_representative.get(member.id, 1.0)
-                        is_leader = (member.id == cluster.representative_id)
-                        tag = "👑 [Leader Anchor]" if is_leader else f"Similarity: {sim_score:.3f}"
+                    # Source questions list
+                    with st.expander(f"📚 Where did this question appear? ({len(cluster.questions)} occurrences across {cluster.paper_count} papers)", expanded=True):
+                        for member in cluster.questions:
+                            sim_score = cluster.similarity_to_representative.get(member.id, 1.0)
+                            is_leader = (member.id == cluster.representative_id)
+                            tag = "👑 [Leader Anchor]" if is_leader else f"Match: ~{int(sim_score * 100)}%"
 
-                        st.markdown(
-                            f"- **{member.source_file}** (Page {member.source_page}, {member.question_number}, "
-                            f"Year {member.year if member.year else 'N/A'}) — `{tag}`\n"
-                            f"  > *\"{member.text}\"*"
-                        )
+                            st.markdown(
+                                f"- **{member.source_file}** (Page {member.source_page}, Q{member.question_number}, "
+                                f"Year {member.year if member.year else 'N/A'}) — `{tag}`\n"
+                                f"  > *\"{member.text}\"*"
+                            )
 
-            # Export Repeated Clusters
+                    # Optional technical details expander
+                    with st.expander("🔬 Technical Similarity Details", expanded=False):
+                        st.caption(f"Cluster Identifier: `{cluster.cluster_id}`")
+                        st.caption(f"Average Group Similarity: `{cluster.avg_similarity:.3f}`")
+                        st.caption("Individual Cosine Similarity to Representative Leader:")
+                        for qid, score in cluster.similarity_to_representative.items():
+                            st.caption(f"• Question ID `{qid}`: `{score:.3f}`")
+
+            # Export Button
             rep_df = get_repeated_clusters_df(analysis)
             st.markdown("---")
             csv_rep = rep_df.to_csv(index=False).encode("utf-8")
@@ -771,60 +724,157 @@ elif nav_choice == "🔁 Repeated Questions":
                 data=csv_rep,
                 file_name="paperpilot_repeated_questions.csv",
                 mime="text/csv",
+                key="btn_download_repeated_csv",
             )
 
+        # Call-To-Action to Step 3
+        st.markdown("---")
+        col_next_step3, _ = st.columns([1, 2])
+        with col_next_step3:
+            if st.button("Proceed to Step 3: My Revision Plan ➔", type="primary", key="btn_to_step3"):
+                st.session_state["nav_choice"] = "3. 📝 My Revision Plan"
+                st.rerun()
+
 
 # =============================================================================
-# 5. TOPIC & FREQUENCY ANALYSIS
+# STEP 3: MY REVISION PLAN
 # =============================================================================
-elif nav_choice == "📈 Topic & Frequency Analysis":
-    st.title("📈 Topic & Frequency Analysis")
-    st.write("Visual breakdown of question distribution across papers, examination years, and recurrence clusters.")
+elif nav_choice == "3. 📝 My Revision Plan":
+    st.title("📝 Step 3: My Revision Plan")
+    st.write(
+        "Questions ranked by exam recurrence so you know what to revise first. "
+        "Questions asked in multiple years are prioritized as **High Priority**."
+    )
 
-    questions = storage.get_questions(include_excluded=False)
-
-    if not questions:
-        st.info("No questions to analyze. Upload papers in **Upload & Review**.")
+    if total_q_count == 0:
+        st.warning("⚠️ No questions found. Please complete **Step 1: Upload Papers** first.")
+        if st.button("Go to Step 1: Upload Papers ➔", type="primary"):
+            st.session_state["nav_choice"] = "1. 📤 Upload Papers"
+            st.rerun()
     else:
         analysis = get_current_analysis()
+        checklist_df = get_revision_checklist_df(analysis)
 
-        tab_charts, tab_tables = st.tabs(["📊 Visual Charts", "📑 Tabular Distribution"])
+        # Priority Counts Metrics
+        high_count = len(checklist_df[checklist_df["Priority"].str.contains("High", case=False, na=False)])
+        medium_count = len(checklist_df[checklist_df["Priority"].str.contains("Medium", case=False, na=False)])
+        standard_count = len(checklist_df[checklist_df["Priority"].str.contains("Standard", case=False, na=False)])
 
-        with tab_charts:
+        col_pr1, col_pr2, col_pr3 = st.columns(3)
+        col_pr1.metric("🔥 High Priority", high_count, help="Appeared in 2+ separate exam papers across years")
+        col_pr2.metric("⚡ Medium Priority", medium_count, help="Repeated multiple times within paper or borderline similarity")
+        col_pr3.metric("📘 Standard Priority", standard_count, help="Appeared in a single exam paper so far")
+
+        st.markdown("---")
+
+        # Priority Filter
+        filter_priority = st.radio(
+            "Filter Questions by Priority Tier",
+            options=["All Questions", "🔥 High Priority Only", "⚡ Medium Priority Only", "📘 Standard Priority Only"],
+            horizontal=True,
+        )
+
+        filtered_checklist = checklist_df
+        if "High Priority" in filter_priority:
+            filtered_checklist = checklist_df[checklist_df["Priority"].str.contains("High", case=False, na=False)]
+        elif "Medium Priority" in filter_priority:
+            filtered_checklist = checklist_df[checklist_df["Priority"].str.contains("Medium", case=False, na=False)]
+        elif "Standard Priority" in filter_priority:
+            filtered_checklist = checklist_df[checklist_df["Priority"].str.contains("Standard", case=False, na=False)]
+
+        st.dataframe(filtered_checklist, use_container_width=True, hide_index=True)
+
+        # Download Checklist CSV
+        csv_checklist = checklist_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="📥 Download Complete Revision Checklist (CSV)",
+            data=csv_checklist,
+            file_name="paperpilot_revision_checklist.csv",
+            mime="text/csv",
+            key="btn_download_checklist_csv",
+        )
+
+        # Visual Exam Distribution
+        with st.expander("📊 Visual Exam Distribution Charts", expanded=False):
+            col_v1, col_v2 = st.columns(2)
+            with col_v1:
+                st.subheader("Questions per Exam Paper")
+                papers_summary = get_papers_summary_df(all_active_questions)
+                if not papers_summary.empty:
+                    st.bar_chart(papers_summary.set_index("Filename")["Questions Extracted"])
+            with col_v2:
+                st.subheader("Questions per Exam Year")
+                year_counts = {}
+                for q in all_active_questions:
+                    y_label = str(q.year) if q.year is not None else "Unknown"
+                    year_counts[y_label] = year_counts.get(y_label, 0) + 1
+                year_df = pd.DataFrame(list(year_counts.items()), columns=["Year", "Questions"]).sort_values(by="Year")
+                if not year_df.empty:
+                    st.bar_chart(year_df.set_index("Year")["Questions"])
+
+
+# =============================================================================
+# STEP 4: QUESTION BANK & ANALYTICS
+# =============================================================================
+elif nav_choice == "4. 📊 Question Bank & Analytics":
+    st.title("📊 Question Bank & Analytics")
+    st.write("Browse, search, and inspect the complete database of extracted exam questions and topic distributions.")
+
+    if total_q_count == 0:
+        st.info("No questions stored yet. Please upload papers in **Step 1: Upload Papers**.")
+    else:
+        tab_qbank, tab_analytics = st.tabs(["📚 All Questions", "📈 Exam Distribution & Clusters"])
+
+        with tab_qbank:
+            col_f1, col_f2 = st.columns([2, 1])
+            with col_f1:
+                search_query = st.text_input("🔍 Search question text", placeholder="Type keywords like 'deadlock', 'scheduling'...")
+            with col_f2:
+                paper_filter = st.selectbox("Filter by Paper", options=["All Papers"] + [p["filename"] for p in storage.get_papers()], key="qb_paper_select")
+
+            show_excluded = st.checkbox("Show excluded questions", value=False)
+            filtered_qb = storage.get_questions(
+                source_file=None if paper_filter == "All Papers" else paper_filter,
+                include_excluded=show_excluded,
+            )
+            if search_query.strip():
+                q_lower = search_query.strip().lower()
+                filtered_qb = [q for q in filtered_qb if q_lower in q.text.lower()]
+
+            st.caption(f"Displaying **{len(filtered_qb)}** matching questions.")
+            df_qb = get_all_questions_df(filtered_qb)
+            st.dataframe(df_qb, use_container_width=True, hide_index=True)
+
+            csv_all = df_qb.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="📥 Download Filtered Question Bank (CSV)",
+                data=csv_all,
+                file_name="paperpilot_all_questions.csv",
+                mime="text/csv",
+                key="btn_download_qb_csv",
+            )
+
+        with tab_analytics:
             col_ch1, col_ch2 = st.columns(2)
-
             with col_ch1:
                 st.subheader("Questions per Exam Paper")
-                papers_summary = get_papers_summary_df(questions)
+                papers_summary = get_papers_summary_df(all_active_questions)
                 if not papers_summary.empty:
-                    chart_data = papers_summary.set_index("Filename")["Questions Extracted"]
-                    st.bar_chart(chart_data)
+                    st.bar_chart(papers_summary.set_index("Filename")["Questions Extracted"])
 
             with col_ch2:
                 st.subheader("Questions per Exam Year")
                 year_counts = {}
-                for q in questions:
+                for q in all_active_questions:
                     y_label = str(q.year) if q.year is not None else "Unknown"
                     year_counts[y_label] = year_counts.get(y_label, 0) + 1
-
                 year_df = pd.DataFrame(list(year_counts.items()), columns=["Year", "Questions"]).sort_values(by="Year")
-                st.bar_chart(year_df.set_index("Year"))
+                if not year_df.empty:
+                    st.bar_chart(year_df.set_index("Year")["Questions"])
 
-            st.subheader("Recurrence Distribution")
-            col_pie1, col_pie2 = st.columns([1, 2])
-            with col_pie1:
-                rep_count = sum(c.occurrence_count for c in analysis.repeated_clusters)
-                single_count = len(analysis.single_question_clusters)
-                dist_df = pd.DataFrame({
-                    "Category": ["Repeated Questions", "Single-Appearance Questions"],
-                    "Count": [rep_count, single_count],
-                })
-                st.dataframe(dist_df, width="stretch", hide_index=True)
-            with col_pie2:
-                st.bar_chart(dist_df.set_index("Category"))
-
-        with tab_tables:
-            st.subheader("Complete Cluster Breakdown")
+            st.markdown("---")
+            st.subheader("Complete Cluster Breakdown Table")
+            analysis = get_current_analysis()
             all_cluster_data = []
             for c in analysis.clusters:
                 ai_lbl = st.session_state.get("ai_cluster_labels", {}).get(c.cluster_id)
@@ -847,129 +897,70 @@ elif nav_choice == "📈 Topic & Frequency Analysis":
                     "Topic / Representative": c.representative_text,
                     "Distinct Papers": c.paper_count,
                     "Occurrences": c.occurrence_count,
-                    "Years": ", ".join(str(y) for y in c.years) if c.years else "N/A",
-                    "Is Repeated": "Yes" if c.occurrence_count > 1 else "No",
+                    "Repeated": "Yes" if c.occurrence_count > 1 else "No",
+                    "Exam Years": ", ".join(str(y) for y in c.years) if c.years else "N/A",
                 })
-            all_cluster_df = pd.DataFrame(all_cluster_data)
-            st.dataframe(all_cluster_df, width="stretch", hide_index=True)
+
+            st.dataframe(pd.DataFrame(all_cluster_data), use_container_width=True, hide_index=True)
 
 
 # =============================================================================
-# 6. REVISION CHECKLIST
+# STEP 5: SETTINGS & PRIVACY
 # =============================================================================
-elif nav_choice == "📝 Revision Checklist":
-    st.title("📝 Student Revision Checklist & Study Guide")
+elif nav_choice == "5. ⚙️ Settings & Privacy":
+    st.title("⚙️ Settings & Privacy")
+    st.write("Configure similarity sensitivity, view privacy details, and manage local data.")
+
+    st.subheader("🎚️ Similarity Sensitivity")
     st.write(
-        "A targeted, prioritized revision checklist derived **strictly from historical repetition evidence**. "
-        "Questions are organized into high, medium, and standard priority tiers."
+        "PaperPilot clusters questions using TF-IDF cosine similarity. "
+        "The similarity threshold dictates how closely questions must match to be considered recurring."
     )
 
-    questions = storage.get_questions(include_excluded=False)
-
-    if not questions:
-        st.info("No questions to prioritize. Upload papers in **Upload & Review**.")
-    else:
-        analysis = get_current_analysis()
-        checklist_df = get_revision_checklist_df(analysis)
-
-        col_t1, col_t2, col_t3 = st.columns(3)
-        high_count = len(checklist_df[checklist_df["Priority"].str.contains("High")])
-        med_count = len(checklist_df[checklist_df["Priority"].str.contains("Medium")])
-        std_count = len(checklist_df[checklist_df["Priority"].str.contains("Standard")])
-
-        col_t1.metric("🔴 High Priority (Multi-Year)", high_count)
-        col_t2.metric("🟡 Medium Priority (Repeated)", med_count)
-        col_t3.metric("🟢 Standard Priority", std_count)
-
-        st.markdown("---")
-
-        # Interactive checklist table
-        st.dataframe(
-            checklist_df,
-            width="stretch",
-            hide_index=True,
-            column_config={
-                "Priority": st.column_config.TextColumn("Priority Tier", width="medium"),
-                "Topic / Question": st.column_config.TextColumn("Topic / Representative Question", width="large"),
-                "Distinct Papers": st.column_config.NumberColumn("Distinct Papers", width="small"),
-                "Total Occurrences": st.column_config.NumberColumn("Occurrences", width="small"),
-                "Exam Years": st.column_config.TextColumn("Exam Years", width="small"),
-                "Sample Source": st.column_config.TextColumn("Source Paper", width="medium"),
-            },
-        )
-
-        csv_chk = checklist_df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="📥 Download Revision Checklist (CSV)",
-            data=csv_chk,
-            file_name="paperpilot_revision_checklist.csv",
-            mime="text/csv",
-        )
-
-
-# =============================================================================
-# 7. SETTINGS & PRIVACY
-# =============================================================================
-elif nav_choice == "⚙️ Settings & Privacy":
-    st.title("⚙️ Settings & Offline Privacy")
-
-    col_set1, col_set2 = st.columns(2)
-
-    with col_set1:
-        st.subheader("Clustering Configuration")
-        st.write(
-            "Configure the TF-IDF Cosine Similarity threshold used for detecting repeated questions. "
-            "Higher thresholds require more exact wording; lower thresholds cluster broader variants."
-        )
-
-        cfg_threshold = st.slider(
-            "Similarity Threshold",
+    col_s1, col_s2 = st.columns([2, 1])
+    with col_s1:
+        new_th = st.slider(
+            "Cosine Similarity Threshold",
             min_value=0.40,
             max_value=0.95,
             value=float(st.session_state["similarity_threshold"]),
             step=0.05,
-            key="settings_slider",
+            help="Higher values require closer word matching. Lower values cluster broader topic variants.",
         )
-
-        if cfg_threshold != st.session_state["similarity_threshold"]:
-            st.session_state["similarity_threshold"] = cfg_threshold
+        if new_th != st.session_state["similarity_threshold"]:
+            st.session_state["similarity_threshold"] = new_th
             mark_data_dirty()
-            st.success(f"Similarity threshold updated to {cfg_threshold:.2f}!")
+            st.success(f"Threshold updated to {new_th:.2f} and clusters recalculated.")
+            st.rerun()
 
+    with col_s2:
         st.markdown(
             """
             **Guidance:**
-            - `0.80 - 0.95`: Identifies near-verbatim repeated questions.
-            - `0.60 - 0.75`: Recommended baseline for capturing paraphrased question variants.
-            - `0.40 - 0.55`: Loose clustering; groups related topic concepts together.
+            - **0.50 - 0.60:** Catches conceptual topic overlap (recommended for broad questions).
+            - **0.65:** Default balanced threshold.
+            - **0.75 - 0.90:** Identifies near-exact wording duplicates.
             """
         )
 
-    with col_set2:
-        st.subheader("🔒 Privacy & Offline Assurance")
-        st.info(
-            "**No Cloud Telemetry or APIs**\n\n"
-            "PaperPilot runs entirely on your local machine. "
-            "No exam papers, extracted text, or analysis data are ever transmitted to any external server."
-        )
-
-        st.markdown(f"**Database Location:** `{DB_PATH}`")
-        stats = storage.get_stats()
-        st.markdown(f"**Total Papers in DB:** `{stats['total_papers']}`")
-        st.markdown(f"**Active Questions in DB:** `{stats['active_questions']}`")
-        st.markdown(f"**Excluded Questions:** `{stats['excluded_questions']}`")
+    st.markdown("---")
+    st.subheader("🔒 Privacy & Storage Guarantee")
+    st.markdown(
+        """
+        - **Local Storage:** All questions and paper metadata are saved in `<project>/paperpilot.db`.
+        - **Zero Cloud Leakage:** PDFs are parsed locally. No data is sent to external cloud APIs or third parties.
+        - **Local AI:** Optional AI features strictly communicate with local Ollama on loopback `localhost:11434`.
+        - **Git Safety:** Your database and uploaded PDFs are excluded from version control via `.gitignore`.
+        """
+    )
 
     st.markdown("---")
+    st.subheader("⚠️ Reset Database")
+    st.write("Need to start fresh? Resetting deletes all stored papers and questions from your local SQLite database.")
 
-    # Project Data Reset with Explicit Confirmation
-    st.subheader("⚠️ Project Reset")
-    st.write("Wipe all stored papers and extracted questions from your local database.")
-
-    confirm_reset = st.checkbox("I confirm that I want to permanently wipe all stored papers and questions.")
-
-    if st.button("🗑️ Reset All Project Data", type="primary", disabled=not confirm_reset):
+    confirm_reset = st.checkbox("I understand this will permanently delete all stored questions and papers.")
+    if st.button("🗑️ Reset Database & Clear All Data", disabled=not confirm_reset, type="primary"):
         storage.clear_all()
-        st.session_state["analysis_cache"] = None
-        st.session_state["cache_dirty"] = True
-        st.success("All project data has been wiped successfully.")
+        mark_data_dirty()
+        st.success("Database reset successfully! All questions and papers have been removed.")
         st.rerun()
